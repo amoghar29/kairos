@@ -1,0 +1,231 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+	"github.com/amoghar29/kairos/internal/config"
+	"github.com/amoghar29/kairos/internal/db"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+const (
+	defaultPriority   = 5
+	defaultMaxRetries = 3
+)
+
+type CreateJobRequest struct {
+	Name           string          `json:"name"`
+	Queue          string          `json:"queue"`
+	Payload        json.RawMessage `json:"payload"`
+	Priority       *int32          `json:"priority"`
+	MaxRetries     *int32          `json:"max_retries"`
+	IdempotencyKey string          `json:"idempotency_key"`
+}
+
+func (r *CreateJobRequest) Validate(queues *config.Queues) map[string]string {
+	fields := map[string]string{}
+
+	switch {
+	case r.Name == "":
+		fields["name"] = "must be provided"
+	case len(r.Name) > 200:
+		fields["name"] = "must not exceed 200 characters"
+	}
+
+	if r.Queue != "" && !queues.Exists(r.Queue) {
+		fields["queue"] = fmt.Sprintf("unknown queue %q; must be one of: %s",
+			r.Queue, strings.Join(queues.Names(), ", "))
+	}
+
+	if r.Priority != nil && (*r.Priority < 1 || *r.Priority > 10) {
+		fields["priority"] = "must be between 1 and 10"
+	}
+
+	if r.MaxRetries != nil && *r.MaxRetries < 0 {
+		fields["max_retries"] = "must not be negative"
+	}
+
+	if len(r.IdempotencyKey) > 255 {
+		fields["idempotency_key"] = "must not exceed 255 characters"
+	}
+
+	if len(r.Payload) > 0 && !json.Valid(r.Payload) {
+		fields["payload"] = "must be valid JSON"
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+
+func (r *CreateJobRequest) ToParams(queues *config.Queues) db.CreateJobParams {
+	queue := r.Queue
+	if queue == "" {
+		queue = queues.Default
+	}
+
+	priority := int32(defaultPriority)
+	if r.Priority != nil {
+		priority = *r.Priority
+	}
+
+	maxRetries := int32(defaultMaxRetries)
+	if r.MaxRetries != nil {
+		maxRetries = *r.MaxRetries
+	}
+
+	payload := []byte(r.Payload)
+	if len(payload) == 0 {
+		payload = []byte("{}")
+	}
+
+	return db.CreateJobParams{
+		Name:           r.Name,
+		Queue:          queue,
+		Payload:        payload,
+		Priority:       priority,
+		MaxRetries:     maxRetries,
+		IdempotencyKey: pgtype.Text{String: r.IdempotencyKey, Valid: r.IdempotencyKey != ""},
+	}
+}
+
+type CancelJobRequest struct {
+	Version int32 `json:"version"`
+}
+
+func (r *CancelJobRequest) Validate() map[string]string {
+	if r.Version < 1 {
+		return map[string]string{"version": "must be a positive integer"}
+	}
+	return nil
+}
+
+type JobResponse struct {
+	ID                string          `json:"id"`
+	Name              string          `json:"name"`
+	Queue             string          `json:"queue"`
+	State             string          `json:"state"`
+	Payload           json.RawMessage `json:"payload"`
+	Priority          int32           `json:"priority"`
+	EffectivePriority int32           `json:"effective_priority"`
+	RetryCount        int32           `json:"retry_count"`
+	MaxRetries        int32           `json:"max_retries"`
+	DeliveryCount     int32           `json:"delivery_count"`
+	Version           int32           `json:"version"`
+	NextTriggerAt     *time.Time      `json:"next_trigger_at"`
+	IdempotencyKey    *string         `json:"idempotency_key"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+}
+
+func NewJobResponse(j db.Job) JobResponse {
+	return JobResponse{
+		ID:                j.ID.String(),
+		Name:              j.Name,
+		Queue:             j.Queue,
+		State:             string(j.State),
+		Payload:           json.RawMessage(j.Payload),
+		Priority:          j.Priority,
+		EffectivePriority: j.EffectivePriority,
+		RetryCount:        j.RetryCount,
+		MaxRetries:        j.MaxRetries,
+		DeliveryCount:     j.DeliveryCount,
+		Version:           j.Version,
+		NextTriggerAt:     timePtr(j.NextTriggerAt),
+		IdempotencyKey:    stringPtr(j.IdempotencyKey),
+		CreatedAt:         j.CreatedAt.Time,
+		UpdatedAt:         j.UpdatedAt.Time,
+	}
+}
+
+type JobAttemptResponse struct {
+	ID              string     `json:"id"`
+	JobID           string     `json:"job_id"`
+	AttemptNumber   int32      `json:"attempt_number"`
+	WorkerID        string     `json:"worker_id"`
+	Outcome         string     `json:"outcome"`
+	Error           *string    `json:"error"`
+	StartedAt       time.Time  `json:"started_at"`
+	FinishedAt      *time.Time `json:"finished_at"`
+	LastHeartbeatAt *time.Time `json:"last_heartbeat_at"`
+}
+
+func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
+	return JobAttemptResponse{
+		ID:              a.ID.String(),
+		JobID:           a.JobID.String(),
+		AttemptNumber:   a.AttemptNumber,
+		WorkerID:        a.WorkerID,
+		Outcome:         string(a.Outcome),
+		Error:           stringPtr(a.Error),
+		StartedAt:       a.StartedAt.Time,
+		FinishedAt:      timePtr(a.FinishedAt),
+		LastHeartbeatAt: timePtr(a.LastHeartbeatAt),
+	}
+}
+
+
+type ListResponse[T any] struct {
+	Items  []T   `json:"items"`
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+type Pagination struct {
+	Limit  int32
+	Offset int32
+}
+
+const (
+	defaultLimit = 20
+	maxLimit     = 100
+)
+
+func parsePagination(r *http.Request) (Pagination, map[string]string) {
+	p := Pagination{Limit: defaultLimit, Offset: 0}
+	q := r.URL.Query()
+	fields := map[string]string{}
+
+	if raw := q.Get("limit"); raw != "" {
+		v, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || v < 1 || v > maxLimit {
+			fields["limit"] = "must be an integer between 1 and 100"
+		} else {
+			p.Limit = int32(v)
+		}
+	}
+
+	if raw := q.Get("offset"); raw != "" {
+		v, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || v < 0 {
+			fields["offset"] = "must be a non-negative integer"
+		} else {
+			p.Offset = int32(v)
+		}
+	}
+
+	if len(fields) == 0 {
+		return p, nil
+	}
+	return p, fields
+}
+
+func timePtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	return &t.Time
+}
+
+func stringPtr(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	return &t.String
+}

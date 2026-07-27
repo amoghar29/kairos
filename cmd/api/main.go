@@ -1,32 +1,79 @@
 package main
 
 import (
-	"os"
-	"log"
-	"github.com/go-chi/chi/v5"
-	"github.com/joho/godotenv"
+	"context"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"time"
+
+	"github.com/amoghar29/kairos/internal/api"
+	"github.com/amoghar29/kairos/internal/config"
+	"github.com/amoghar29/kairos/internal/db"
+	"github.com/amoghar29/kairos/internal/job"
+	"github.com/amoghar29/kairos/internal/logging"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
-
-
 func main() {
-
-	godotenv.Load()
-	port := os.Getenv("PORT")
-
-	if port == "" {
-		log.Fatal("PORT environment variable is not set")
+	if err := run(); err != nil {
+		slog.Error("startup failed", slog.Any("error", err))
+		os.Exit(1)
 	}
+}
+func run() error {
+	_ = godotenv.Load()
 
-	main_router := chi.NewRouter()
-
-	server := &http.Server{
-		Addr:    ":" + port,
-		Handler: main_router,
-	}
-	err := server.ListenAndServe()
+	apiConfig, err := config.LoadConfig()
 	if err != nil {
-		log.Fatal("Failed to start server:", err)
+		return fmt.Errorf("load config: %w", err)
 	}
+
+	logger := logging.New(apiConfig.IsDevelopment())
+
+	queues, err := config.LoadQueues(apiConfig.QueuesPath)
+	if err != nil {
+		return fmt.Errorf("load queues: %w", err)
+	}
+	logger.Info("loaded queues",
+		slog.Any("queues", queues.Names()),
+		slog.String("default", queues.Default),
+	)
+
+	ctx := context.Background()
+
+	dbPool, err := pgxpool.New(ctx, apiConfig.DBDSN)
+	if err != nil {
+		return fmt.Errorf("connect to database: %w", err)
+	}
+	defer dbPool.Close()
+
+	if err := dbPool.Ping(ctx); err != nil {
+		return fmt.Errorf("ping database: %w", err)
+	}
+	logger.Info("connected to database")
+
+	app := &api.Application{
+		Config:        apiConfig,
+		Queues:        queues,
+		Logger:        logger,
+		JobRepository: job.NewRepository(db.New(dbPool)),
+	}
+
+	srv := &http.Server{
+		Addr:         fmt.Sprintf(":%d", apiConfig.Port),
+		Handler:      app.Routes(),
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  time.Minute,
+		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
+	}
+
+	logger.Info("starting server",
+		slog.String("addr", srv.Addr),
+		slog.String("env", apiConfig.Env),
+	)
+	return srv.ListenAndServe()
 }
