@@ -15,6 +15,11 @@ import (
 const (
 	defaultPriority   = 5
 	defaultMaxRetries = 3
+
+	minPriority   = 1
+	maxPriority   = 10
+	minMaxRetries = 0
+	maxMaxRetries = 25
 )
 
 type CreateJobRequest struct {
@@ -41,12 +46,12 @@ func (r *CreateJobRequest) Validate(queues *config.Queues) map[string]string {
 			r.Queue, strings.Join(queues.Names(), ", "))
 	}
 
-	if r.Priority != nil && (*r.Priority < 1 || *r.Priority > 10) {
-		fields["priority"] = "must be between 1 and 10"
+	if r.Priority != nil && (*r.Priority < minPriority || *r.Priority > maxPriority) {
+		fields["priority"] = fmt.Sprintf("must be between %d and %d", minPriority, maxPriority)
 	}
 
-	if r.MaxRetries != nil && *r.MaxRetries < 0 {
-		fields["max_retries"] = "must not be negative"
+	if r.MaxRetries != nil && (*r.MaxRetries < minMaxRetries || *r.MaxRetries > maxMaxRetries) {
+		fields["max_retries"] = fmt.Sprintf("must be between %d and %d", minMaxRetries, maxMaxRetries)
 	}
 
 	if len(r.IdempotencyKey) > 255 {
@@ -171,15 +176,37 @@ func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
 }
 
 
-type ListResponse[T any] struct {
-	Items  []T   `json:"items"`
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+type PaginationResponse struct {
+	Limit   int32 `json:"limit"`
+	Offset  int32 `json:"offset"`
+	HasMore bool  `json:"has_more"`
+}
+
+type JobListResponse struct {
+	Jobs       []JobResponse      `json:"jobs"`
+	Pagination PaginationResponse `json:"pagination"`
+}
+
+type JobAttemptListResponse struct {
+	Attempts   []JobAttemptResponse `json:"attempts"`
+	Pagination PaginationResponse   `json:"pagination"`
 }
 
 type Pagination struct {
 	Limit  int32
 	Offset int32
+}
+
+func (p Pagination) fetchLimit() int32 {
+	return p.Limit + 1
+}
+
+func splitPage[T any](rows []T, p Pagination) ([]T, PaginationResponse) {
+	hasMore := int32(len(rows)) > p.Limit
+	if hasMore {
+		rows = rows[:p.Limit]
+	}
+	return rows, PaginationResponse{Limit: p.Limit, Offset: p.Offset, HasMore: hasMore}
 }
 
 const (

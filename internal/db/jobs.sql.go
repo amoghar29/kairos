@@ -295,6 +295,40 @@ func (q *Queries) GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgt
 	return i, err
 }
 
+const retryJob = `-- name: RetryJob :one
+UPDATE jobs
+SET state = 'pending',
+    retry_count = 0,
+    next_trigger_at = now(),
+    version = version + 1
+WHERE id = $1
+  AND state = 'dead'
+RETURNING id, name, queue, state, payload, priority, effective_priority, retry_count, max_retries, delivery_count, version, next_trigger_at, idempotency_key, created_at, updated_at
+`
+
+func (q *Queries) RetryJob(ctx context.Context, id pgtype.UUID) (Job, error) {
+	row := q.db.QueryRow(ctx, retryJob, id)
+	var i Job
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Queue,
+		&i.State,
+		&i.Payload,
+		&i.Priority,
+		&i.EffectivePriority,
+		&i.RetryCount,
+		&i.MaxRetries,
+		&i.DeliveryCount,
+		&i.Version,
+		&i.NextTriggerAt,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateJobAttemptHeartbeat = `-- name: UpdateJobAttemptHeartbeat :one
 UPDATE job_attempts
 SET last_heartbeat_at = now()

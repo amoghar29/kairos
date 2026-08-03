@@ -1,6 +1,7 @@
 package job
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
@@ -13,20 +14,21 @@ import (
 var (
 	ErrNotFound             = errors.New("job not found")
 	ErrConflict             = errors.New("job was modified or is not in a cancellable state")
+	ErrNotReplayable        = errors.New("job is not in a replayable state")
 	ErrIdempotencyCollision = errors.New("idempotency key already used by a different job")
 )
 
 const uniqueViolation = "23505"
 
-type Repository struct {
+type JobRepository struct {
 	q db.Querier
 }
 
-func NewRepository(q db.Querier) *Repository {
-	return &Repository{q: q}
+func NewJobRepository(q db.Querier) *JobRepository {
+	return &JobRepository{q: q}
 }
 
-func (r *Repository) Create(ctx context.Context, arg db.CreateJobParams) (job db.Job, created bool, err error) {
+func (r *JobRepository) Create(ctx context.Context, arg db.CreateJobParams) (job db.Job, created bool, err error) {
 	job, err = r.q.CreateJob(ctx, arg)
 	if err == nil {
 		return job, true, nil
@@ -38,16 +40,20 @@ func (r *Repository) Create(ctx context.Context, arg db.CreateJobParams) (job db
 	}
 
 	existing, err := r.q.GetJobByIdempotencyKey(ctx, arg.IdempotencyKey)
+
 	if err != nil {
 		return db.Job{}, false, err
 	}
-	if existing.Name != arg.Name || existing.Queue != arg.Queue {
+	if existing.Name != arg.Name ||
+		existing.Queue != arg.Queue ||
+		existing.Priority != arg.Priority ||
+		!bytes.Equal(existing.Payload, arg.Payload) {
 		return db.Job{}, false, ErrIdempotencyCollision
 	}
 	return existing, false, nil
 }
 
-func (r *Repository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, error) {
+func (r *JobRepository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, error) {
 	job, err := r.q.GetJobById(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Job{}, ErrNotFound
@@ -55,11 +61,11 @@ func (r *Repository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, error
 	return job, err
 }
 
-func (r *Repository) List(ctx context.Context, limit, offset int32) ([]db.Job, error) {
+func (r *JobRepository) List(ctx context.Context, limit, offset int32) ([]db.Job, error) {
 	return r.q.GetAllJobs(ctx, db.GetAllJobsParams{Limit: limit, Offset: offset})
 }
 
-func (r *Repository) Delete(ctx context.Context, id pgtype.UUID) error {
+func (r *JobRepository) Delete(ctx context.Context, id pgtype.UUID) error {
 	_, err := r.q.DeleteJobById(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -67,7 +73,7 @@ func (r *Repository) Delete(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
-func (r *Repository) Cancel(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+func (r *JobRepository) Cancel(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
 	job, err := r.q.CancelJob(ctx, db.CancelJobParams{ID: id, Version: version})
 	if err == nil {
 		return job, nil
@@ -82,7 +88,23 @@ func (r *Repository) Cancel(ctx context.Context, id pgtype.UUID, version int32) 
 	return db.Job{}, ErrConflict
 }
 
-func (r *Repository) ListAttempts(ctx context.Context, jobID pgtype.UUID, limit, offset int32) ([]db.JobAttempt, error) {
+
+func (r *JobRepository) Retry(ctx context.Context, id pgtype.UUID) (db.Job, error) {
+	job, err := r.q.RetryJob(ctx, id)
+	if err == nil {
+		return job, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return db.Job{}, err
+	}
+
+	if _, err := r.GetByID(ctx, id); err != nil {
+		return db.Job{}, err
+	}
+	return db.Job{}, ErrNotReplayable
+}
+
+func (r *JobRepository) ListAttempts(ctx context.Context, jobID pgtype.UUID, limit, offset int32) ([]db.JobAttempt, error) {
 	return r.q.GetJobAttemptsByJobId(ctx, db.GetJobAttemptsByJobIdParams{
 		JobID:  jobID,
 		Limit:  limit,

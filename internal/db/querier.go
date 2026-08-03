@@ -19,6 +19,7 @@ type Querier interface {
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)
 	GetJobById(ctx context.Context, id pgtype.UUID) (Job, error)
 	GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Job, error)
+	RetryJob(ctx context.Context, id pgtype.UUID) (Job, error)
 	UpdateJobAttemptHeartbeat(ctx context.Context, id pgtype.UUID) (JobAttempt, error)
 	UpdateJobAttemptOutcome(ctx context.Context, arg UpdateJobAttemptOutcomeParams) (JobAttempt, error)
 	UpdateJobEffectivePriority(ctx context.Context, arg UpdateJobEffectivePriorityParams) (Job, error)

@@ -57,9 +57,6 @@ func (app *Application) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := http.StatusOK
-	if isNew {
-		status = http.StatusCreated
-	}
 	app.writeJSON(w, r, status, NewJobResponse(created))
 }
 
@@ -90,16 +87,16 @@ func (app *Application) ListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs, err := app.JobRepository.List(r.Context(), page.Limit, page.Offset)
+	jobs, err := app.JobRepository.List(r.Context(), page.fetchLimit(), page.Offset)
 	if err != nil {
 		app.serverError(w, r, err)
 		return
 	}
 
-	app.writeJSON(w, r, http.StatusOK, ListResponse[JobResponse]{
-		Items:  mapSlice(jobs, NewJobResponse),
-		Limit:  page.Limit,
-		Offset: page.Offset,
+	jobs, pagination := splitPage(jobs, page)
+	app.writeJSON(w, r, http.StatusOK, JobListResponse{
+		Jobs:       mapSlice(jobs, NewJobResponse),
+		Pagination: pagination,
 	})
 }
 
@@ -155,6 +152,29 @@ func (app *Application) CancelJob(w http.ResponseWriter, r *http.Request) {
 	app.writeJSON(w, r, http.StatusOK, NewJobResponse(cancelled))
 }
 
+func (app *Application) RetryJob(w http.ResponseWriter, r *http.Request) {
+	id, err := jobIDFromURL(r)
+	if err != nil {
+		app.badRequest(w, r, "id must be a valid UUID")
+		return
+	}
+
+	retried, err := app.JobRepository.Retry(r.Context(), id)
+	switch {
+	case errors.Is(err, job.ErrNotFound):
+		app.notFound(w, r)
+		return
+	case errors.Is(err, job.ErrNotReplayable):
+		app.conflict(w, r, "job is not in a replayable state")
+		return
+	case err != nil:
+		app.serverError(w, r, err)
+		return
+	}
+
+	app.writeJSON(w, r, http.StatusOK, NewJobResponse(retried))
+}
+
 func (app *Application) ListJobAttempts(w http.ResponseWriter, r *http.Request) {
 	id, err := jobIDFromURL(r)
 	if err != nil {
@@ -177,16 +197,16 @@ func (app *Application) ListJobAttempts(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	attempts, err := app.JobRepository.ListAttempts(r.Context(), id, page.Limit, page.Offset)
+	attempts, err := app.JobRepository.ListAttempts(r.Context(), id, page.fetchLimit(), page.Offset)
 	if err != nil {
 		app.serverError(w, r, err)
 		return
 	}
 
-	app.writeJSON(w, r, http.StatusOK, ListResponse[JobAttemptResponse]{
-		Items:  mapSlice(attempts, NewJobAttemptResponse),
-		Limit:  page.Limit,
-		Offset: page.Offset,
+	attempts, pagination := splitPage(attempts, page)
+	app.writeJSON(w, r, http.StatusOK, JobAttemptListResponse{
+		Attempts:   mapSlice(attempts, NewJobAttemptResponse),
+		Pagination: pagination,
 	})
 }
 

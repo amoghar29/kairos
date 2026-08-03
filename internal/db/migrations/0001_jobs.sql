@@ -31,6 +31,9 @@ CREATE TYPE attempt_outcome AS ENUM (
 -- The DEFAULTs below are a safety net for manual/psql inserts. The API always
 -- names these columns in its INSERT, so the application supplies the real
 -- defaults (see defaultPriority / defaultMaxRetries in internal/api/dto.go).
+-- The priority/max_retries CHECK bounds mirror the constants in that same file.
+-- The API copy exists to return a 422 with a readable field error; these exist
+-- because workers and psql write here without passing through the API.
 CREATE TABLE jobs (
     id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     name                text        NOT NULL,
@@ -55,7 +58,7 @@ CREATE TABLE jobs (
     updated_at          timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT priority_range        CHECK (priority BETWEEN 1 AND 10),
-    CONSTRAINT max_retries_valid     CHECK (max_retries >= 0),
+    CONSTRAINT max_retries_range     CHECK (max_retries BETWEEN 0 AND 25),
     CONSTRAINT retry_count_valid     CHECK (retry_count >= 0),
     CONSTRAINT delivery_count_valid  CHECK (delivery_count >= 0),
 

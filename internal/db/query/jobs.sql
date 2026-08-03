@@ -44,6 +44,16 @@ WHERE id = $1
   AND state IN ('pending', 'queued', 'awaiting_retry')
 RETURNING *;
 
+-- name: RetryJob :one
+UPDATE jobs
+SET state = 'pending',
+    retry_count = 0,
+    next_trigger_at = now(),
+    version = version + 1
+WHERE id = $1
+  AND state = 'dead'
+RETURNING *;
+
 -- name: UpdateRetryCount :one
 UPDATE jobs
 SET retry_count = retry_count + 1
