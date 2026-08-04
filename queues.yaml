@@ -1,5 +1,0 @@
-default_queue: default
-
-queues:
-  - default
-  - main

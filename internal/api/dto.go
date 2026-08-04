@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 	"github.com/amoghar29/kairos/internal/config"
 	"github.com/amoghar29/kairos/internal/db"
@@ -31,11 +30,7 @@ type CreateJobRequest struct {
 	IdempotencyKey string          `json:"idempotency_key"`
 }
 
-func unknownQueueMsg(name string, queues *config.Queues) string {
-	return fmt.Sprintf("unknown queue %q; must be one of: %s", name, strings.Join(queues.Names(), ", "))
-}
-
-func (r *CreateJobRequest) Validate(queues *config.Queues) map[string]string {
+func (r *CreateJobRequest) Validate(queues config.Queues) map[string]string {
 	fields := map[string]string{}
 
 	switch {
@@ -45,8 +40,11 @@ func (r *CreateJobRequest) Validate(queues *config.Queues) map[string]string {
 		fields["name"] = "must not exceed 200 characters"
 	}
 
-	if r.Queue != "" && !queues.Exists(r.Queue) {
-		fields["queue"] = unknownQueueMsg(r.Queue, queues)
+	switch {
+	case r.Queue == "":
+		fields["queue"] = "must be provided"
+	case !queues.Exists(r.Queue):
+		fields["queue"] = fmt.Sprintf("unknown queue %q", r.Queue)
 	}
 
 	if r.Priority != nil && (*r.Priority < minPriority || *r.Priority > maxPriority) {
@@ -72,12 +70,7 @@ func (r *CreateJobRequest) Validate(queues *config.Queues) map[string]string {
 }
 
 
-func (r *CreateJobRequest) ToParams(queues *config.Queues) db.CreateJobParams {
-	queue := r.Queue
-	if queue == "" {
-		queue = queues.Default
-	}
-
+func (r *CreateJobRequest) ToParams() db.CreateJobParams {
 	priority := int32(defaultPriority)
 	if r.Priority != nil {
 		priority = *r.Priority
@@ -95,7 +88,7 @@ func (r *CreateJobRequest) ToParams(queues *config.Queues) db.CreateJobParams {
 
 	return db.CreateJobParams{
 		Name:           r.Name,
-		Queue:          queue,
+		Queue:          r.Queue,
 		Payload:        payload,
 		Priority:       priority,
 		MaxRetries:     maxRetries,

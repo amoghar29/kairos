@@ -46,7 +46,7 @@ func (app *Application) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, isNew, err := app.JobRepository.Create(r.Context(), req.ToParams(app.Queues))
+	created, isNew, err := app.JobRepository.Create(r.Context(), req.ToParams())
 	switch {
 	case errors.Is(err, job.ErrIdempotencyCollision):
 		app.idempotencyCollision(w, r)

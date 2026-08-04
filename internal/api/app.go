@@ -10,7 +10,7 @@ import (
 
 type Application struct {
 	Config        *config.Config
-	Queues        *config.Queues
+	Queues        config.Queues
 	Logger        *slog.Logger
 	JobRepository *job.JobRepository
 }

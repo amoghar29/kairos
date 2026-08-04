@@ -26,21 +26,18 @@ func main() {
 func run() error {
 	_ = godotenv.Load()
 
-	apiConfig, err := config.LoadConfig()
+	apiConfig, err := config.LoadAPIConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
 	logger := logging.New(apiConfig.IsDevelopment())
 
-	queues, err := config.LoadQueues(apiConfig.QueuesPath)
+	queues, err := config.LoadQueues()
 	if err != nil {
 		return fmt.Errorf("load queues: %w", err)
 	}
-	logger.Info("loaded queues",
-		slog.Any("queues", queues.Names()),
-		slog.String("default", queues.Default),
-	)
+	logger.Info("loaded queues", slog.Any("queues", queues))
 
 	ctx := context.Background()
 
@@ -59,7 +56,7 @@ func run() error {
 		Config:        apiConfig,
 		Queues:        queues,
 		Logger:        logger,
-		JobRepository: job.NewRepository(db.New(dbPool)),
+		JobRepository: job.NewJobRepository(db.New(dbPool)),
 	}
 
 	srv := &http.Server{
@@ -68,7 +65,7 @@ func run() error {
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  time.Minute,
-		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
+		ErrorLog:     slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
 
 	logger.Info("starting server",

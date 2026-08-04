@@ -1,0 +1,11 @@
+poll_interval: 30
+stale_threshold: 60
+heartbeat_interval: 2
+default_queue_limit: 10
+max_delivery_count: 3
+
+queues:
+  - name: default
+    limit: 5
+  - name: high_priority
+    limit: 10
