@@ -29,7 +29,7 @@ func (app *Application) Routes() http.Handler {
 			r.Get("/", app.GetJob)
 			r.Delete("/", app.DeleteJob)
 			r.Post("/cancel", app.CancelJob)
-			r.Post("/retry", app.RetryJob)
+			r.Post("/rerun", app.RerunJob)
 			r.Get("/attempts", app.ListJobAttempts)
 		})
 	})

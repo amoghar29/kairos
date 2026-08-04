@@ -1,63 +1,50 @@
 -- name: CreateJob :one
 INSERT INTO jobs
-    (name, queue, payload, priority, effective_priority, max_retries, next_trigger_at, idempotency_key)
-VALUES ($1, $2, $3, $4, $4, $5, now(), $6)
+    (name, queue, payload, priority, max_retries, next_check_at, idempotency_key)
+VALUES ($1, $2, $3, $4, $5, now(), $6)
 RETURNING *;
 
 -- name: GetJobById :one
 SELECT * FROM jobs WHERE id = $1;
 
--- name: GetAllJobs :many
+-- name: GetJobByIdempotencyKey :one
+SELECT * FROM jobs WHERE idempotency_key = $1;
+
+-- Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
+-- name: ListJobs :many
 SELECT * FROM jobs
 ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2;
 
--- name: GetJobByIdempotencyKey :one
-SELECT * FROM jobs WHERE idempotency_key = $1;
-
 -- name: DeleteJobById :one
 DELETE FROM jobs WHERE id = $1 RETURNING *;
 
--- name: UpdateJobState :one
-UPDATE jobs
-SET state = $2, next_trigger_at = $3, version = version + 1
-WHERE id = $1 AND version = $4
-RETURNING *;
-
--- name: UpdateJobPriority :one
-UPDATE jobs
-SET priority = $2, effective_priority = $2
-WHERE id = $1
-RETURNING *;
-
--- name: UpdateJobEffectivePriority :one
-UPDATE jobs
-SET effective_priority = $2
-WHERE id = $1
-RETURNING *;
-
 -- name: CancelJob :one
 UPDATE jobs
-SET state = 'cancelled', next_trigger_at = NULL, version = version + 1
+SET state = 'cancelled', next_check_at = NULL, version = version + 1
 WHERE id = $1
   AND version = $2
   AND state IN ('pending', 'queued', 'awaiting_retry')
 RETURNING *;
 
--- name: RetryJob :one
+-- name: RerunDeadJob :one
 UPDATE jobs
 SET state = 'pending',
     retry_count = 0,
-    next_trigger_at = now(),
+    next_check_at = now(),
     version = version + 1
 WHERE id = $1
+  AND version = $2
   AND state = 'dead'
 RETURNING *;
 
--- name: UpdateRetryCount :one
+-- name: RecordHandlerFailure :one
 UPDATE jobs
-SET retry_count = retry_count + 1
-WHERE id = $1
+SET retry_count = retry_count + 1,
+    state = CASE WHEN retry_count + 1 >= max_retries THEN 'dead' ELSE 'awaiting_retry' END,
+    next_check_at = CASE WHEN retry_count + 1 >= max_retries THEN NULL ELSE $3 END,
+    version = version + 1
+WHERE id = $1 AND version = $2
 RETURNING *;
 
 -- name: GetJobAttemptsByJobId :many
@@ -78,8 +65,9 @@ SET outcome = $2, error = $3, finished_at = now()
 WHERE id = $1
 RETURNING *;
 
--- name: UpdateJobAttemptHeartbeat :one
-UPDATE job_attempts
-SET last_heartbeat_at = now()
-WHERE id = $1
+-- name: RefreshHeartbeat :one
+UPDATE jobs
+SET next_check_at = now() + sqlc.arg(stale_threshold)::interval,
+    version = version + 1
+WHERE id = $1 AND version = $2 AND state = 'running'
 RETURNING *;

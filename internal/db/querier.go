@@ -15,17 +15,15 @@ type Querier interface {
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (JobAttempt, error)
 	DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error)
-	GetAllJobs(ctx context.Context, arg GetAllJobsParams) ([]Job, error)
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)
 	GetJobById(ctx context.Context, id pgtype.UUID) (Job, error)
 	GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Job, error)
-	RetryJob(ctx context.Context, id pgtype.UUID) (Job, error)
-	UpdateJobAttemptHeartbeat(ctx context.Context, id pgtype.UUID) (JobAttempt, error)
+	// Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
+	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
+	RecordHandlerFailure(ctx context.Context, arg RecordHandlerFailureParams) (Job, error)
+	RefreshHeartbeat(ctx context.Context, arg RefreshHeartbeatParams) (Job, error)
+	RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job, error)
 	UpdateJobAttemptOutcome(ctx context.Context, arg UpdateJobAttemptOutcomeParams) (JobAttempt, error)
-	UpdateJobEffectivePriority(ctx context.Context, arg UpdateJobEffectivePriorityParams) (Job, error)
-	UpdateJobPriority(ctx context.Context, arg UpdateJobPriorityParams) (Job, error)
-	UpdateJobState(ctx context.Context, arg UpdateJobStateParams) (Job, error)
-	UpdateRetryCount(ctx context.Context, id pgtype.UUID) (Job, error)
 }
 
 var _ Querier = (*Queries)(nil)

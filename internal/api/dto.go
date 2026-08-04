@@ -31,6 +31,10 @@ type CreateJobRequest struct {
 	IdempotencyKey string          `json:"idempotency_key"`
 }
 
+func unknownQueueMsg(name string, queues *config.Queues) string {
+	return fmt.Sprintf("unknown queue %q; must be one of: %s", name, strings.Join(queues.Names(), ", "))
+}
+
 func (r *CreateJobRequest) Validate(queues *config.Queues) map[string]string {
 	fields := map[string]string{}
 
@@ -42,8 +46,7 @@ func (r *CreateJobRequest) Validate(queues *config.Queues) map[string]string {
 	}
 
 	if r.Queue != "" && !queues.Exists(r.Queue) {
-		fields["queue"] = fmt.Sprintf("unknown queue %q; must be one of: %s",
-			r.Queue, strings.Join(queues.Names(), ", "))
+		fields["queue"] = unknownQueueMsg(r.Queue, queues)
 	}
 
 	if r.Priority != nil && (*r.Priority < minPriority || *r.Priority > maxPriority) {
@@ -100,11 +103,11 @@ func (r *CreateJobRequest) ToParams(queues *config.Queues) db.CreateJobParams {
 	}
 }
 
-type CancelJobRequest struct {
+type VersionRequest struct {
 	Version int32 `json:"version"`
 }
 
-func (r *CancelJobRequest) Validate() map[string]string {
+func (r *VersionRequest) Validate() map[string]string {
 	if r.Version < 1 {
 		return map[string]string{"version": "must be a positive integer"}
 	}
@@ -112,66 +115,62 @@ func (r *CancelJobRequest) Validate() map[string]string {
 }
 
 type JobResponse struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name"`
-	Queue             string          `json:"queue"`
-	State             string          `json:"state"`
-	Payload           json.RawMessage `json:"payload"`
-	Priority          int32           `json:"priority"`
-	EffectivePriority int32           `json:"effective_priority"`
-	RetryCount        int32           `json:"retry_count"`
-	MaxRetries        int32           `json:"max_retries"`
-	DeliveryCount     int32           `json:"delivery_count"`
-	Version           int32           `json:"version"`
-	NextTriggerAt     *time.Time      `json:"next_trigger_at"`
-	IdempotencyKey    *string         `json:"idempotency_key"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Queue          string          `json:"queue"`
+	State          string          `json:"state"`
+	Payload        json.RawMessage `json:"payload"`
+	Priority       int32           `json:"priority"`
+	RetryCount     int32           `json:"retry_count"`
+	MaxRetries     int32           `json:"max_retries"`
+	DeliveryCount  int32           `json:"delivery_count"`
+	Version        int32           `json:"version"`
+	NextCheckAt    *time.Time      `json:"next_check_at"`
+	IdempotencyKey *string         `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 func NewJobResponse(j db.Job) JobResponse {
 	return JobResponse{
-		ID:                j.ID.String(),
-		Name:              j.Name,
-		Queue:             j.Queue,
-		State:             string(j.State),
-		Payload:           json.RawMessage(j.Payload),
-		Priority:          j.Priority,
-		EffectivePriority: j.EffectivePriority,
-		RetryCount:        j.RetryCount,
-		MaxRetries:        j.MaxRetries,
-		DeliveryCount:     j.DeliveryCount,
-		Version:           j.Version,
-		NextTriggerAt:     timePtr(j.NextTriggerAt),
-		IdempotencyKey:    stringPtr(j.IdempotencyKey),
-		CreatedAt:         j.CreatedAt.Time,
-		UpdatedAt:         j.UpdatedAt.Time,
+		ID:             j.ID.String(),
+		Name:           j.Name,
+		Queue:          j.Queue,
+		State:          string(j.State),
+		Payload:        json.RawMessage(j.Payload),
+		Priority:       j.Priority,
+		RetryCount:     j.RetryCount,
+		MaxRetries:     j.MaxRetries,
+		DeliveryCount:  j.DeliveryCount,
+		Version:        j.Version,
+		NextCheckAt:    timePtr(j.NextCheckAt),
+		IdempotencyKey: stringPtr(j.IdempotencyKey),
+		CreatedAt:      j.CreatedAt.Time,
+		UpdatedAt:      j.UpdatedAt.Time,
 	}
 }
 
 type JobAttemptResponse struct {
-	ID              string     `json:"id"`
-	JobID           string     `json:"job_id"`
-	AttemptNumber   int32      `json:"attempt_number"`
-	WorkerID        string     `json:"worker_id"`
-	Outcome         string     `json:"outcome"`
-	Error           *string    `json:"error"`
-	StartedAt       time.Time  `json:"started_at"`
-	FinishedAt      *time.Time `json:"finished_at"`
-	LastHeartbeatAt *time.Time `json:"last_heartbeat_at"`
+	ID            string     `json:"id"`
+	JobID         string     `json:"job_id"`
+	AttemptNumber int32      `json:"attempt_number"`
+	WorkerID      string     `json:"worker_id"`
+	Outcome       string     `json:"outcome"`
+	Error         *string    `json:"error"`
+	StartedAt     time.Time  `json:"started_at"`
+	FinishedAt    *time.Time `json:"finished_at"`
 }
 
 func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
 	return JobAttemptResponse{
-		ID:              a.ID.String(),
-		JobID:           a.JobID.String(),
-		AttemptNumber:   a.AttemptNumber,
-		WorkerID:        a.WorkerID,
-		Outcome:         string(a.Outcome),
-		Error:           stringPtr(a.Error),
-		StartedAt:       a.StartedAt.Time,
-		FinishedAt:      timePtr(a.FinishedAt),
-		LastHeartbeatAt: timePtr(a.LastHeartbeatAt),
+		ID:            a.ID.String(),
+		JobID:         a.JobID.String(),
+		AttemptNumber: a.AttemptNumber,
+		WorkerID:      a.WorkerID,
+		Outcome:       string(a.Outcome),
+		Error:         stringPtr(a.Error),
+		StartedAt:     a.StartedAt.Time,
+		FinishedAt:    timePtr(a.FinishedAt),
 	}
 }
 
@@ -213,6 +212,13 @@ const (
 	defaultLimit = 20
 	maxLimit     = 100
 )
+
+func (p Pagination) toListJobsParams() db.ListJobsParams {
+	return db.ListJobsParams{
+		Limit:  p.fetchLimit(),
+		Offset: p.Offset,
+	}
+}
 
 func parsePagination(r *http.Request) (Pagination, map[string]string) {
 	p := Pagination{Limit: defaultLimit, Offset: 0}

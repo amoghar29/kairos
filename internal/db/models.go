@@ -14,7 +14,7 @@ import (
 type AttemptOutcome string
 
 const (
-	AttemptOutcomeRunning    AttemptOutcome = "running"
+	AttemptOutcomeInProgress AttemptOutcome = "in_progress"
 	AttemptOutcomeSuccess    AttemptOutcome = "success"
 	AttemptOutcomeFailed     AttemptOutcome = "failed"
 	AttemptOutcomeCancelled  AttemptOutcome = "cancelled"
@@ -58,7 +58,7 @@ func (ns NullAttemptOutcome) Value() (driver.Value, error) {
 
 func (e AttemptOutcome) Valid() bool {
 	switch e {
-	case AttemptOutcomeRunning,
+	case AttemptOutcomeInProgress,
 		AttemptOutcomeSuccess,
 		AttemptOutcomeFailed,
 		AttemptOutcomeCancelled,
@@ -70,7 +70,7 @@ func (e AttemptOutcome) Valid() bool {
 
 func AllAttemptOutcomeValues() []AttemptOutcome {
 	return []AttemptOutcome{
-		AttemptOutcomeRunning,
+		AttemptOutcomeInProgress,
 		AttemptOutcomeSuccess,
 		AttemptOutcomeFailed,
 		AttemptOutcomeCancelled,
@@ -152,31 +152,29 @@ func AllJobStateValues() []JobState {
 }
 
 type Job struct {
-	ID                pgtype.UUID        `json:"id"`
-	Name              string             `json:"name"`
-	Queue             string             `json:"queue"`
-	State             JobState           `json:"state"`
-	Payload           []byte             `json:"payload"`
-	Priority          int32              `json:"priority"`
-	EffectivePriority int32              `json:"effective_priority"`
-	RetryCount        int32              `json:"retry_count"`
-	MaxRetries        int32              `json:"max_retries"`
-	DeliveryCount     int32              `json:"delivery_count"`
-	Version           int32              `json:"version"`
-	NextTriggerAt     pgtype.Timestamptz `json:"next_trigger_at"`
-	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ID             pgtype.UUID        `json:"id"`
+	Name           string             `json:"name"`
+	Queue          string             `json:"queue"`
+	State          JobState           `json:"state"`
+	Payload        []byte             `json:"payload"`
+	Priority       int32              `json:"priority"`
+	RetryCount     int32              `json:"retry_count"`
+	MaxRetries     int32              `json:"max_retries"`
+	DeliveryCount  int32              `json:"delivery_count"`
+	Version        int32              `json:"version"`
+	NextCheckAt    pgtype.Timestamptz `json:"next_check_at"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type JobAttempt struct {
-	ID              pgtype.UUID        `json:"id"`
-	JobID           pgtype.UUID        `json:"job_id"`
-	AttemptNumber   int32              `json:"attempt_number"`
-	WorkerID        string             `json:"worker_id"`
-	Outcome         AttemptOutcome     `json:"outcome"`
-	Error           pgtype.Text        `json:"error"`
-	StartedAt       pgtype.Timestamptz `json:"started_at"`
-	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
-	LastHeartbeatAt pgtype.Timestamptz `json:"last_heartbeat_at"`
+	ID            pgtype.UUID        `json:"id"`
+	JobID         pgtype.UUID        `json:"job_id"`
+	AttemptNumber int32              `json:"attempt_number"`
+	WorkerID      string             `json:"worker_id"`
+	Outcome       AttemptOutcome     `json:"outcome"`
+	Error         pgtype.Text        `json:"error"`
+	StartedAt     pgtype.Timestamptz `json:"started_at"`
+	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
 }

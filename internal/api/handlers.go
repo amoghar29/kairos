@@ -57,6 +57,9 @@ func (app *Application) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := http.StatusOK
+	if isNew {
+		status = http.StatusCreated
+	}
 	app.writeJSON(w, r, status, NewJobResponse(created))
 }
 
@@ -87,7 +90,7 @@ func (app *Application) ListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs, err := app.JobRepository.List(r.Context(), page.fetchLimit(), page.Offset)
+	jobs, err := app.JobRepository.List(r.Context(), page.toListJobsParams())
 	if err != nil {
 		app.serverError(w, r, err)
 		return
@@ -126,7 +129,7 @@ func (app *Application) CancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CancelJobRequest
+	var req VersionRequest
 	if err := decodeBody(w, r, &req); err != nil {
 		app.badRequest(w, r, err.Error())
 		return
@@ -152,27 +155,37 @@ func (app *Application) CancelJob(w http.ResponseWriter, r *http.Request) {
 	app.writeJSON(w, r, http.StatusOK, NewJobResponse(cancelled))
 }
 
-func (app *Application) RetryJob(w http.ResponseWriter, r *http.Request) {
+func (app *Application) RerunJob(w http.ResponseWriter, r *http.Request) {
 	id, err := jobIDFromURL(r)
 	if err != nil {
 		app.badRequest(w, r, "id must be a valid UUID")
 		return
 	}
 
-	retried, err := app.JobRepository.Retry(r.Context(), id)
+	var req VersionRequest
+	if err := decodeBody(w, r, &req); err != nil {
+		app.badRequest(w, r, err.Error())
+		return
+	}
+	if fields := req.Validate(); fields != nil {
+		app.failedValidation(w, r, fields)
+		return
+	}
+
+	rerun, err := app.JobRepository.Rerun(r.Context(), id, req.Version)
 	switch {
 	case errors.Is(err, job.ErrNotFound):
 		app.notFound(w, r)
 		return
-	case errors.Is(err, job.ErrNotReplayable):
-		app.conflict(w, r, "job is not in a replayable state")
+	case errors.Is(err, job.ErrConflict):
+		app.conflict(w, r, "job was modified by another request or is not dead")
 		return
 	case err != nil:
 		app.serverError(w, r, err)
 		return
 	}
 
-	app.writeJSON(w, r, http.StatusOK, NewJobResponse(retried))
+	app.writeJSON(w, r, http.StatusOK, NewJobResponse(rerun))
 }
 
 func (app *Application) ListJobAttempts(w http.ResponseWriter, r *http.Request) {

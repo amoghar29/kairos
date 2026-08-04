@@ -21,7 +21,7 @@ CREATE TYPE job_state AS ENUM (
 
 
 CREATE TYPE attempt_outcome AS ENUM (
-    'running',
+    'in_progress',
     'success',
     'failed',
     'cancelled',
@@ -42,30 +42,28 @@ CREATE TABLE jobs (
     payload             jsonb       NOT NULL DEFAULT '{}'::jsonb,
 
     priority            int         NOT NULL DEFAULT 5,
-    effective_priority  int         NOT NULL DEFAULT 5,
-
     retry_count         int         NOT NULL DEFAULT 0,
     max_retries         int         NOT NULL DEFAULT 3,
     delivery_count      int         NOT NULL DEFAULT 0,
 
     version             int         NOT NULL DEFAULT 1,
 
-    next_trigger_at     timestamptz,
+    next_check_at       timestamptz,
 
     idempotency_key     text        UNIQUE,
 
     created_at          timestamptz NOT NULL DEFAULT now(),
     updated_at          timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT priority_range        CHECK (priority BETWEEN 1 AND 10),
-    CONSTRAINT max_retries_range     CHECK (max_retries BETWEEN 0 AND 25),
-    CONSTRAINT retry_count_valid     CHECK (retry_count >= 0),
-    CONSTRAINT delivery_count_valid  CHECK (delivery_count >= 0),
+    CONSTRAINT priority_range          CHECK (priority BETWEEN 1 AND 10),
+    CONSTRAINT max_retries_range       CHECK (max_retries BETWEEN 0 AND 25),
+    CONSTRAINT retry_count_valid       CHECK (retry_count >= 0),
+    CONSTRAINT delivery_count_valid    CHECK (delivery_count >= 0),
 
-    CONSTRAINT trigger_matches_state CHECK (
-        (state IN ('success', 'dead', 'cancelled') AND next_trigger_at IS NULL)
+    CONSTRAINT next_check_matches_state CHECK (
+        (state IN ('success', 'dead', 'cancelled') AND next_check_at IS NULL)
         OR
-        (state NOT IN ('success', 'dead', 'cancelled') AND next_trigger_at IS NOT NULL)
+        (state NOT IN ('success', 'dead', 'cancelled') AND next_check_at IS NOT NULL)
     )
 );
 
@@ -78,11 +76,10 @@ CREATE TABLE job_attempts (
     job_id            uuid            NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     attempt_number    int             NOT NULL,
     worker_id         text            NOT NULL,
-    outcome           attempt_outcome NOT NULL DEFAULT 'running',
+    outcome           attempt_outcome NOT NULL DEFAULT 'in_progress',
     error             text,
     started_at        timestamptz     NOT NULL DEFAULT now(),
     finished_at       timestamptz,
-    last_heartbeat_at timestamptz,
 
     UNIQUE (job_id, attempt_number)
 );

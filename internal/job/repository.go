@@ -13,8 +13,7 @@ import (
 
 var (
 	ErrNotFound             = errors.New("job not found")
-	ErrConflict             = errors.New("job was modified or is not in a cancellable state")
-	ErrNotReplayable        = errors.New("job is not in a replayable state")
+	ErrConflict             = errors.New("job was modified or is not in a valid state for this transition")
 	ErrIdempotencyCollision = errors.New("idempotency key already used by a different job")
 )
 
@@ -61,8 +60,8 @@ func (r *JobRepository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, er
 	return job, err
 }
 
-func (r *JobRepository) List(ctx context.Context, limit, offset int32) ([]db.Job, error) {
-	return r.q.GetAllJobs(ctx, db.GetAllJobsParams{Limit: limit, Offset: offset})
+func (r *JobRepository) List(ctx context.Context, arg db.ListJobsParams) ([]db.Job, error) {
+	return r.q.ListJobs(ctx, arg)
 }
 
 func (r *JobRepository) Delete(ctx context.Context, id pgtype.UUID) error {
@@ -74,7 +73,19 @@ func (r *JobRepository) Delete(ctx context.Context, id pgtype.UUID) error {
 }
 
 func (r *JobRepository) Cancel(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
-	job, err := r.q.CancelJob(ctx, db.CancelJobParams{ID: id, Version: version})
+	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
+		return r.q.CancelJob(ctx, db.CancelJobParams{ID: id, Version: version})
+	})
+}
+
+func (r *JobRepository) Rerun(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
+		return r.q.RerunDeadJob(ctx, db.RerunDeadJobParams{ID: id, Version: version})
+	})
+}
+
+func (r *JobRepository) guardedUpdate(ctx context.Context, id pgtype.UUID, update func() (db.Job, error)) (db.Job, error) {
+	job, err := update()
 	if err == nil {
 		return job, nil
 	}
@@ -86,22 +97,6 @@ func (r *JobRepository) Cancel(ctx context.Context, id pgtype.UUID, version int3
 		return db.Job{}, err
 	}
 	return db.Job{}, ErrConflict
-}
-
-
-func (r *JobRepository) Retry(ctx context.Context, id pgtype.UUID) (db.Job, error) {
-	job, err := r.q.RetryJob(ctx, id)
-	if err == nil {
-		return job, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return db.Job{}, err
-	}
-
-	if _, err := r.GetByID(ctx, id); err != nil {
-		return db.Job{}, err
-	}
-	return db.Job{}, ErrNotReplayable
 }
 
 func (r *JobRepository) ListAttempts(ctx context.Context, jobID pgtype.UUID, limit, offset int32) ([]db.JobAttempt, error) {
