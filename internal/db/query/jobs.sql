@@ -71,3 +71,55 @@ SET next_check_at = now() + sqlc.arg(stale_threshold)::interval,
     version = version + 1
 WHERE id = $1 AND version = $2 AND state = 'running'
 RETURNING *;
+
+
+-- name: ReclaimStaleJobs :many
+UPDATE jobs
+SET delivery_count = delivery_count + 1,
+    state = CASE
+        WHEN delivery_count + 1 > sqlc.arg(max_delivery_count)::int THEN 'dead'
+        ELSE 'awaiting_retry'
+    END,
+    next_check_at = CASE
+        WHEN delivery_count + 1 > sqlc.arg(max_delivery_count)::int THEN NULL
+        ELSE now()
+    END,
+    version = version + 1
+WHERE state = 'running' AND next_check_at <= now()
+RETURNING *;
+
+-- name: SupersedeOpenAttempt :exec
+UPDATE job_attempts
+SET outcome = 'superseded', finished_at = now()
+WHERE job_id = $1 AND finished_at IS NULL;
+
+
+-- name: GetDueJobs :many
+WITH queued_counts AS (
+    SELECT queue, count(*) AS queued_count
+    FROM jobs
+    WHERE state = 'queued'
+    GROUP BY queue
+),
+ranked AS (
+    SELECT j.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY j.queue
+            ORDER BY (j.priority + sqlc.arg(aging_rate)::float * extract(epoch from j.created_at)) ASC,
+                     j.created_at ASC
+        ) AS rn
+    FROM jobs j
+    WHERE j.state IN ('pending', 'awaiting_retry')
+      AND j.next_check_at <= now()
+)
+SELECT ranked.id,ranked.queue,ranked.version FROM ranked
+LEFT JOIN queued_counts qc ON qc.queue = ranked.queue
+WHERE ranked.rn <= (sqlc.arg(max_fetch_per_queue)::int - COALESCE(qc.queued_count, 0))
+ORDER BY ranked.queue, ranked.rn;
+
+-- name: MarkQueued :many
+UPDATE jobs
+SET state = 'queued', version = version + 1, updated_at = now()
+WHERE id = ANY(sqlc.arg(ids)::uuid[])
+  AND state IN ('pending', 'awaiting_retry')
+RETURNING id;

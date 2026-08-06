@@ -147,6 +147,61 @@ func (q *Queries) DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error
 	return i, err
 }
 
+const getDueJobs = `-- name: GetDueJobs :many
+WITH queued_counts AS (
+    SELECT queue, count(*) AS queued_count
+    FROM jobs
+    WHERE state = 'queued'
+    GROUP BY queue
+),
+ranked AS (
+    SELECT j.id, j.name, j.queue, j.state, j.payload, j.priority, j.retry_count, j.max_retries, j.delivery_count, j.version, j.next_check_at, j.idempotency_key, j.created_at, j.updated_at,
+        ROW_NUMBER() OVER (
+            PARTITION BY j.queue
+            ORDER BY (j.priority + $2::float * extract(epoch from j.created_at)) ASC,
+                     j.created_at ASC
+        ) AS rn
+    FROM jobs j
+    WHERE j.state IN ('pending', 'awaiting_retry')
+      AND j.next_check_at <= now()
+)
+SELECT ranked.id,ranked.queue,ranked.version FROM ranked
+LEFT JOIN queued_counts qc ON qc.queue = ranked.queue
+WHERE ranked.rn <= ($1::int - COALESCE(qc.queued_count, 0))
+ORDER BY ranked.queue, ranked.rn
+`
+
+type GetDueJobsParams struct {
+	MaxFetchPerQueue int32   `json:"max_fetch_per_queue"`
+	AgingRate        float64 `json:"aging_rate"`
+}
+
+type GetDueJobsRow struct {
+	ID      pgtype.UUID `json:"id"`
+	Queue   string      `json:"queue"`
+	Version int32       `json:"version"`
+}
+
+func (q *Queries) GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDueJobsRow, error) {
+	rows, err := q.db.Query(ctx, getDueJobs, arg.MaxFetchPerQueue, arg.AgingRate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDueJobsRow
+	for rows.Next() {
+		var i GetDueJobsRow
+		if err := rows.Scan(&i.ID, &i.Queue, &i.Version); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getJobAttemptsByJobId = `-- name: GetJobAttemptsByJobId :many
 SELECT id, job_id, attempt_number, worker_id, outcome, error, started_at, finished_at FROM job_attempts
 WHERE job_id = $1
@@ -255,6 +310,85 @@ type ListJobsParams struct {
 // Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
 func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error) {
 	rows, err := q.db.Query(ctx, listJobs, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Job
+	for rows.Next() {
+		var i Job
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Queue,
+			&i.State,
+			&i.Payload,
+			&i.Priority,
+			&i.RetryCount,
+			&i.MaxRetries,
+			&i.DeliveryCount,
+			&i.Version,
+			&i.NextCheckAt,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markQueued = `-- name: MarkQueued :many
+UPDATE jobs
+SET state = 'queued', version = version + 1, updated_at = now()
+WHERE id = ANY($1::uuid[])
+  AND state IN ('pending', 'awaiting_retry')
+RETURNING id
+`
+
+func (q *Queries) MarkQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, markQueued, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reclaimStaleJobs = `-- name: ReclaimStaleJobs :many
+UPDATE jobs
+SET delivery_count = delivery_count + 1,
+    state = CASE
+        WHEN delivery_count + 1 > $1::int THEN 'dead'
+        ELSE 'awaiting_retry'
+    END,
+    next_check_at = CASE
+        WHEN delivery_count + 1 > $1::int THEN NULL
+        ELSE now()
+    END,
+    version = version + 1
+WHERE state = 'running' AND next_check_at <= now()
+RETURNING id, name, queue, state, payload, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
+`
+
+func (q *Queries) ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) ([]Job, error) {
+	rows, err := q.db.Query(ctx, reclaimStaleJobs, maxDeliveryCount)
 	if err != nil {
 		return nil, err
 	}
@@ -399,6 +533,17 @@ func (q *Queries) RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const supersedeOpenAttempt = `-- name: SupersedeOpenAttempt :exec
+UPDATE job_attempts
+SET outcome = 'superseded', finished_at = now()
+WHERE job_id = $1 AND finished_at IS NULL
+`
+
+func (q *Queries) SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, supersedeOpenAttempt, jobID)
+	return err
 }
 
 const updateJobAttemptOutcome = `-- name: UpdateJobAttemptOutcome :one

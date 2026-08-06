@@ -5,81 +5,159 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	defaultPort = 8080
-	defaultEnv  = EnvDevelopment
+type PostgresConfig struct {
+	DSN               string
+	MaxConns          int32
+	MinConns          int32
+	MaxConnLifetime   time.Duration
+	MaxConnIdleTime   time.Duration
+	HealthCheckPeriod time.Duration
+}
 
-	EnvDevelopment = "development"
-	EnvProduction  = "production"
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
+	Protocol int
+}
 
-	defaultConsumerConfigPath = "consumer.yaml"
-)
+type LogConfig struct {
+	File string
+}
 
 type Config struct {
-	Port  int
-	DBDSN string
-	Env   string
+	Port     int
+	Postgres PostgresConfig
+	Log      LogConfig
 }
 
 type Queue struct {
-	Name  string `yaml:"name"`
-	Limit int    `yaml:"limit"`
+	Name string `yaml:"name"`
 }
 
 type Queues []Queue
 
 type ConsumerConfig struct {
-	PollInterval      int    `yaml:"poll_interval"`
-	StaleThreshold    int    `yaml:"stale_threshold"`
-	HeartbeatInterval int    `yaml:"heartbeat_interval"`
-	DefaultQueueLimit int    `yaml:"default_queue_limit"`
-	MaxDeliveryCount  int    `yaml:"max_delivery_count"`
-	Queues            Queues `yaml:"queues"`
+	Postgres PostgresConfig `yaml:"-"`
+	Redis    RedisConfig    `yaml:"-"`
+	Log      LogConfig      `yaml:"-"`
+
+	PollInterval      int `yaml:"poll_interval"`
+	StaleThreshold    int `yaml:"stale_threshold"`
+	HeartbeatInterval int `yaml:"heartbeat_interval"`
+	// QueueLimit caps how many due jobs are fetched per queue per poll. Global for now.
+	// TODO: allow a per-queue override on Queue that falls back to this.
+	QueueLimit       int     `yaml:"queue_limit"`
+	MaxDeliveryCount int     `yaml:"max_delivery_count"`
+	Queues           Queues  `yaml:"queues"`
+	AgingRate        float64 `yaml:"aging_rate"`
 }
 
-func (c *Config) IsDevelopment() bool {
-	return c.Env == EnvDevelopment
+func LoadPostgresConfig() (PostgresConfig, error) {
+	dsn := os.Getenv("DBDSN")
+	if dsn == "" {
+		return PostgresConfig{}, errors.New("DBDSN must be set")
+	}
+
+	maxConns, err := strconv.Atoi(os.Getenv("DB_MAX_CONNS"))
+	if err != nil {
+		return PostgresConfig{}, errors.New("DB_MAX_CONNS must be set to an integer")
+	}
+
+	minConns, err := strconv.Atoi(os.Getenv("DB_MIN_CONNS"))
+	if err != nil {
+		return PostgresConfig{}, errors.New("DB_MIN_CONNS must be set to an integer")
+	}
+
+	maxConnLifetime, err := time.ParseDuration(os.Getenv("DB_MAX_CONN_LIFETIME"))
+	if err != nil {
+		return PostgresConfig{}, errors.New("DB_MAX_CONN_LIFETIME must be set to a duration such as 1h")
+	}
+
+	maxConnIdleTime, err := time.ParseDuration(os.Getenv("DB_MAX_CONN_IDLE_TIME"))
+	if err != nil {
+		return PostgresConfig{}, errors.New("DB_MAX_CONN_IDLE_TIME must be set to a duration such as 30m")
+	}
+
+	healthCheckPeriod, err := time.ParseDuration(os.Getenv("DB_HEALTH_CHECK_PERIOD"))
+	if err != nil {
+		return PostgresConfig{}, errors.New("DB_HEALTH_CHECK_PERIOD must be set to a duration such as 1m")
+	}
+
+	if maxConns <= 0 {
+		return PostgresConfig{}, errors.New("DB_MAX_CONNS must be greater than 0")
+	}
+	if minConns < 0 || minConns > maxConns {
+		return PostgresConfig{}, errors.New("DB_MIN_CONNS must be between 0 and DB_MAX_CONNS")
+	}
+
+	return PostgresConfig{
+		DSN:               dsn,
+		MaxConns:          int32(maxConns),
+		MinConns:          int32(minConns),
+		MaxConnLifetime:   maxConnLifetime,
+		MaxConnIdleTime:   maxConnIdleTime,
+		HealthCheckPeriod: healthCheckPeriod,
+	}, nil
+}
+
+func LoadRedisConfig() (RedisConfig, error) {
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		return RedisConfig{}, errors.New("REDIS_ADDR must be set")
+	}
+
+	dbIndex, err := strconv.Atoi(os.Getenv("REDIS_DB"))
+	if err != nil {
+		return RedisConfig{}, errors.New("REDIS_DB must be set to an integer")
+	}
+
+	protocol, err := strconv.Atoi(os.Getenv("REDIS_PROTOCOL"))
+	if err != nil {
+		return RedisConfig{}, errors.New("REDIS_PROTOCOL must be set to an integer")
+	}
+
+	// Empty means no auth.
+	return RedisConfig{
+		Addr:     addr,
+		Password: os.Getenv("REDIS_PASSWORD"),
+		DB:       dbIndex,
+		Protocol: protocol,
+	}, nil
+}
+
+// Empty LOG_FILE means stdout.
+func LoadLogConfig() LogConfig {
+	return LogConfig{File: os.Getenv("LOG_FILE")}
 }
 
 func LoadAPIConfig() (*Config, error) {
-	dsn := os.Getenv("DBDSN")
-	if dsn == "" {
-		return nil, errors.New("DBDSN must be set")
+	postgres, err := LoadPostgresConfig()
+	if err != nil {
+		return nil, err
 	}
 
-	port := defaultPort
-	if raw := os.Getenv("PORT"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			return nil, errors.New("PORT must be an integer")
-		}
-		port = parsed
-	}
-
-	env := os.Getenv("ENV")
-	switch env {
-	case "":
-		env = defaultEnv
-	case EnvDevelopment, EnvProduction:
-	default:
-		return nil, errors.New("ENV must be either development or production")
+	port, err := strconv.Atoi(os.Getenv("PORT"))
+	if err != nil {
+		return nil, errors.New("PORT must be set to an integer")
 	}
 
 	return &Config{
-		Port:  port,
-		DBDSN: dsn,
-		Env:   env,
+		Port:     port,
+		Postgres: postgres,
+		Log:      LoadLogConfig(),
 	}, nil
 }
 
 func LoadConsumerConfig() (ConsumerConfig, error) {
 	path := os.Getenv("CONSUMER_CONFIG_PATH")
 	if path == "" {
-		path = defaultConsumerConfigPath
+		return ConsumerConfig{}, errors.New("CONSUMER_CONFIG_PATH must be set")
 	}
 
 	data, err := os.ReadFile(path)
@@ -91,6 +169,14 @@ func LoadConsumerConfig() (ConsumerConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return ConsumerConfig{}, fmt.Errorf("parsing consumer config %s: %w", path, err)
 	}
+
+	if cfg.Postgres, err = LoadPostgresConfig(); err != nil {
+		return ConsumerConfig{}, err
+	}
+	if cfg.Redis, err = LoadRedisConfig(); err != nil {
+		return ConsumerConfig{}, err
+	}
+	cfg.Log = LoadLogConfig()
 
 	if err := cfg.validate(); err != nil {
 		return ConsumerConfig{}, err
@@ -109,8 +195,8 @@ func (c *ConsumerConfig) validate() error {
 	if c.MaxDeliveryCount <= 0 {
 		return errors.New("max_delivery_count must be greater than 0")
 	}
-	if c.DefaultQueueLimit <= 0 {
-		return errors.New("default_queue_limit must be greater than 0")
+	if c.QueueLimit <= 0 {
+		return errors.New("queue_limit must be greater than 0")
 	}
 
 	seen := make(map[string]struct{}, len(c.Queues))
@@ -122,10 +208,6 @@ func (c *ConsumerConfig) validate() error {
 			return fmt.Errorf("queues[%d]: duplicate queue name %q", i, q.Name)
 		}
 		seen[q.Name] = struct{}{}
-
-		if q.Limit <= 0 {
-			c.Queues[i].Limit = c.DefaultQueueLimit
-		}
 	}
 
 	return nil
@@ -147,4 +229,3 @@ func (qs Queues) Exists(name string) bool {
 	}
 	return false
 }
-

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/jackc/pgx/v5"
@@ -35,13 +36,13 @@ func (r *JobRepository) Create(ctx context.Context, arg db.CreateJobParams) (job
 
 	var pgErr *pgconn.PgError
 	if !arg.IdempotencyKey.Valid || !errors.As(err, &pgErr) || pgErr.Code != uniqueViolation {
-		return db.Job{}, false, err
+		return db.Job{}, false, fmt.Errorf("create job: %w", err)
 	}
 
 	existing, err := r.q.GetJobByIdempotencyKey(ctx, arg.IdempotencyKey)
 
 	if err != nil {
-		return db.Job{}, false, err
+		return db.Job{}, false, fmt.Errorf("get job by idempotency key: %w", err)
 	}
 	if existing.Name != arg.Name ||
 		existing.Queue != arg.Queue ||
@@ -57,11 +58,18 @@ func (r *JobRepository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, er
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Job{}, ErrNotFound
 	}
-	return job, err
+	if err != nil {
+		return db.Job{}, fmt.Errorf("get job %s: %w", id, err)
+	}
+	return job, nil
 }
 
 func (r *JobRepository) List(ctx context.Context, arg db.ListJobsParams) ([]db.Job, error) {
-	return r.q.ListJobs(ctx, arg)
+	jobs, err := r.q.ListJobs(ctx, arg)
+	if err != nil {
+		return nil, fmt.Errorf("list jobs: %w", err)
+	}
+	return jobs, nil
 }
 
 func (r *JobRepository) Delete(ctx context.Context, id pgtype.UUID) error {
@@ -69,7 +77,10 @@ func (r *JobRepository) Delete(ctx context.Context, id pgtype.UUID) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("delete job %s: %w", id, err)
+	}
+	return nil
 }
 
 func (r *JobRepository) Cancel(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
@@ -90,7 +101,7 @@ func (r *JobRepository) guardedUpdate(ctx context.Context, id pgtype.UUID, updat
 		return job, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return db.Job{}, err
+		return db.Job{}, fmt.Errorf("update job %s: %w", id, err)
 	}
 
 	if _, err := r.GetByID(ctx, id); err != nil {
@@ -99,10 +110,49 @@ func (r *JobRepository) guardedUpdate(ctx context.Context, id pgtype.UUID, updat
 	return db.Job{}, ErrConflict
 }
 
+func (r *JobRepository) ReclaimStale(ctx context.Context, maxDeliveryCount int32) ([]db.Job, error) {
+	jobs, err := r.q.ReclaimStaleJobs(ctx, maxDeliveryCount)
+	if err != nil {
+		return nil, fmt.Errorf("error reclaim stale jobs: %w", err)
+	}
+	return jobs, nil
+}
+
+func (r *JobRepository) SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) error {
+	if err := r.q.SupersedeOpenAttempt(ctx, jobID); err != nil {
+		return fmt.Errorf("error supersede open attempt for job %s: %w", jobID, err)
+	}
+	return nil
+}
+
 func (r *JobRepository) ListAttempts(ctx context.Context, jobID pgtype.UUID, limit, offset int32) ([]db.JobAttempt, error) {
-	return r.q.GetJobAttemptsByJobId(ctx, db.GetJobAttemptsByJobIdParams{
+	attempts, err := r.q.GetJobAttemptsByJobId(ctx, db.GetJobAttemptsByJobIdParams{
 		JobID:  jobID,
 		Limit:  limit,
 		Offset: offset,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("list attempts for job %s: %w", jobID, err)
+	}
+	return attempts, nil
+}
+
+func (r *JobRepository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue int, agingRate float64) ([]db.GetDueJobsRow, error) {
+	jobs, err := r.q.GetDueJobs(ctx, db.GetDueJobsParams{
+		MaxFetchPerQueue: int32(maxFetchPerQueue),
+		AgingRate:        agingRate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error in get due jobs: %w", err)
+	}
+	return jobs, nil
+}
+
+
+func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
+	queued, err := r.q.MarkQueued(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("mark jobs as queued: %w", err)
+	}
+	return queued, nil
 }
