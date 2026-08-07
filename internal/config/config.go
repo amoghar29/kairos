@@ -43,10 +43,6 @@ type Queue struct {
 type Queues []Queue
 
 type ConsumerConfig struct {
-	Postgres PostgresConfig `yaml:"-"`
-	Redis    RedisConfig    `yaml:"-"`
-	Log      LogConfig      `yaml:"-"`
-
 	PollInterval      int `yaml:"poll_interval"`
 	StaleThreshold    int `yaml:"stale_threshold"`
 	HeartbeatInterval int `yaml:"heartbeat_interval"`
@@ -131,9 +127,9 @@ func LoadRedisConfig() (RedisConfig, error) {
 	}, nil
 }
 
-// Empty LOG_FILE means stdout.
-func LoadLogConfig() LogConfig {
-	return LogConfig{File: os.Getenv("LOG_FILE")}
+// Empty path means stdout, which also selects the text/debug handler in internal/logging.
+func LoadLogConfig(path string) LogConfig {
+	return LogConfig{File: path}
 }
 
 func LoadAPIConfig() (*Config, error) {
@@ -150,7 +146,7 @@ func LoadAPIConfig() (*Config, error) {
 	return &Config{
 		Port:     port,
 		Postgres: postgres,
-		Log:      LoadLogConfig(),
+		Log:      LoadLogConfig(os.Getenv("API_LOG_FILE")),
 	}, nil
 }
 
@@ -169,14 +165,6 @@ func LoadConsumerConfig() (ConsumerConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return ConsumerConfig{}, fmt.Errorf("parsing consumer config %s: %w", path, err)
 	}
-
-	if cfg.Postgres, err = LoadPostgresConfig(); err != nil {
-		return ConsumerConfig{}, err
-	}
-	if cfg.Redis, err = LoadRedisConfig(); err != nil {
-		return ConsumerConfig{}, err
-	}
-	cfg.Log = LoadLogConfig()
 
 	if err := cfg.validate(); err != nil {
 		return ConsumerConfig{}, err
