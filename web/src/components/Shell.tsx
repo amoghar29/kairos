@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
+
 import { Link } from 'react-router-dom';
-import { dur } from '../lib/format';
-import { useStatus } from '../lib/resource';
+
+import { useStatus } from '@/contexts/StatusContext';
+import { dur } from '@/utils/format';
 
 const NAV = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
@@ -32,7 +34,11 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
           </Link>
           <nav className="k-nav">
             {NAV.map((item) => (
-              <Link key={item.href} to={item.href} aria-current={item.match(path) ? 'page' : undefined}>
+              <Link
+                key={item.href}
+                to={item.href}
+                aria-current={item.match(path) ? 'page' : undefined}
+              >
                 {item.label}
               </Link>
             ))}

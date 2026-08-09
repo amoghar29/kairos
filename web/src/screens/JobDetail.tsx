@@ -1,15 +1,18 @@
 import { useState } from 'react';
+
 import { Link, useParams } from 'react-router-dom';
-import { cancelJob, getJob, listAttempts, rerunJob } from '../api/client';
-import { asApiError, type ApiError } from '../api/error';
-import type { Job, JobAttempt, LogLine } from '../api/types';
-import { CANCELLABLE_STATES } from '../api/types';
-import { Badge } from '../components/Badge';
-import { Blueprint } from '../components/Blueprint';
-import { ErrorPanel, LoadingPanel } from '../components/Panels';
-import { LogStream } from '../components/LogStream';
-import { EM_DASH, abs, dur, rel, relShort, span } from '../lib/format';
-import { useResource, useStatus } from '../lib/resource';
+
+import { Badge } from '@/components/Badge';
+import { Blueprint } from '@/components/Blueprint';
+import { LogStream } from '@/components/LogStream';
+import { ErrorPanel, LoadingPanel } from '@/components/Panels';
+import { CANCELLABLE_STATES } from '@/constants';
+import { useStatus } from '@/contexts/StatusContext';
+import { useResource } from '@/hooks/useResource';
+import { cancelJob, getJob, listAttempts, rerunJob } from '@/services';
+import { type ApiError, asApiError } from '@/services/api';
+import type { Job, JobAttempt, LogLine } from '@/services/types';
+import { EM_DASH, abs, dur, rel, relShort, span } from '@/utils/format';
 
 const ERROR_CLAMP = 74;
 
@@ -39,11 +42,15 @@ function timeline(job: Job, attempts: JobAttempt[]): LogLine[] {
     } else if (a.outcome === 'failed') {
       lines.push({ t: a.finished_at, line: `attempt ${a.attempt_number} failed: ${a.error}` });
     } else if (a.outcome === 'superseded') {
-      lines.push({ t: a.finished_at, line: `attempt ${a.attempt_number} superseded (job cancelled)` });
+      lines.push({
+        t: a.finished_at,
+        line: `attempt ${a.attempt_number} superseded (job cancelled)`,
+      });
     }
   }
 
-  if (job.state === 'dead') lines.push({ t: job.updated_at, line: 'exhausted retries · moved to dead' });
+  if (job.state === 'dead')
+    lines.push({ t: job.updated_at, line: 'exhausted retries · moved to dead' });
   if (job.state === 'cancelled') lines.push({ t: job.updated_at, line: 'cancelled by operator' });
   if (job.state === 'awaiting_retry' && job.next_check_at) {
     lines.push({ t: job.updated_at, line: `scheduled for retry at ${job.next_check_at}` });
@@ -128,7 +135,9 @@ export function JobDetail() {
   if (!job.data) return null;
 
   const j = job.data;
-  const all = (attempts.data?.attempts ?? []).slice().sort((a, b) => a.attempt_number - b.attempt_number);
+  const all = (attempts.data?.attempts ?? [])
+    .slice()
+    .sort((a, b) => a.attempt_number - b.attempt_number);
   const shown = attemptsFilter === 'all' ? all : all.slice(attemptsFilter === 'last5' ? -5 : -10);
 
   const canCancel = CANCELLABLE_STATES.includes(j.state);
@@ -142,7 +151,8 @@ export function JobDetail() {
     setActionError(null);
     setActionOk(null);
     try {
-      const updated = kind === 'cancel' ? await cancelJob(j.id, j.version) : await rerunJob(j.id, j.version);
+      const updated =
+        kind === 'cancel' ? await cancelJob(j.id, j.version) : await rerunJob(j.id, j.version);
       setActionOk(
         kind === 'cancel'
           ? `Cancelled — state is now ${updated.state}`
@@ -175,7 +185,11 @@ export function JobDetail() {
               <span className="text-[12.5px] text-muted">{j.queue}</span>
             </div>
             <div className="k-grid">
-              <Field label="priority" value={`${j.priority} of 10`} title="1 is highest, 10 lowest" />
+              <Field
+                label="priority"
+                value={`${j.priority} of 10`}
+                title="1 is highest, 10 lowest"
+              />
               <Field label="retry_count" value={`${j.retry_count} of ${j.max_retries}`} />
               <Field label="delivery_count" value={j.delivery_count} />
               <Field label="version" value={j.version} title="optimistic concurrency guard" />
@@ -226,7 +240,9 @@ export function JobDetail() {
             {actionError && (
               <div className="max-w-[280px] border border-bad-line bg-bad-bg px-2.5 py-2">
                 <div className="k-label text-bad-ink">{actionError.label}</div>
-                <div className="text-[12.5px] leading-snug text-bad-deep">{actionError.message}</div>
+                <div className="text-[12.5px] leading-snug text-bad-deep">
+                  {actionError.message}
+                </div>
                 <button
                   type="button"
                   className="btn btn-ghost mt-0.5 px-0 py-0.5 text-[11px]"
@@ -284,8 +300,8 @@ export function JobDetail() {
           <div className="mb-2 flex items-baseline gap-2.5">
             <h2 className="m-0 text-[19px]">Attempts</h2>
             <span className="text-[11px] text-muted">
-              {shown.length} of {all.length} {all.length === 1 ? 'attempt' : 'attempts'} shown · ordered
-              by attempt_number asc
+              {shown.length} of {all.length} {all.length === 1 ? 'attempt' : 'attempts'} shown ·
+              ordered by attempt_number asc
             </span>
             <select
               className="input ml-auto min-h-[28px] w-[150px] text-[12.5px]"

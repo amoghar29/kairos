@@ -1,10 +1,13 @@
 import { Link, useParams } from 'react-router-dom';
-import { getWorkers } from '../api/client';
-import { Blueprint } from '../components/Blueprint';
-import { ErrorPanel, LoadingPanel } from '../components/Panels';
-import { badgeStyle } from '../lib/badge';
-import { dur, rel } from '../lib/format';
-import { useResource, useStatus } from '../lib/resource';
+
+import { Blueprint } from '@/components/Blueprint';
+import { ErrorPanel, LoadingPanel } from '@/components/Panels';
+import { useStatus } from '@/contexts/StatusContext';
+import { useResource } from '@/hooks/useResource';
+import { getWorkers } from '@/services';
+import { badgeStyle } from '@/utils/badge';
+import { dur, rel } from '@/utils/format';
+
 import { isOnline, staleSeconds } from './Workers';
 
 export function WorkerDetail() {
@@ -29,7 +32,8 @@ export function WorkerDetail() {
 
       {res.ready && !worker && (
         <Blueprint className="p-8 text-center text-muted">
-          Worker not found — the registry self-expires, so it may have dropped out since you clicked.
+          Worker not found — the registry self-expires, so it may have dropped out since you
+          clicked.
         </Blueprint>
       )}
 
@@ -37,7 +41,12 @@ export function WorkerDetail() {
         <div>
           <Blueprint className="mb-5.5 px-5 py-4">
             <div className="mb-3 flex items-center gap-3">
-              <span style={badgeStyle(isOnline(worker.last_seen) ? 'running' : 'awaiting_retry', '12px')}>
+              <span
+                style={badgeStyle(
+                  isOnline(worker.last_seen) ? 'running' : 'awaiting_retry',
+                  '12px',
+                )}
+              >
                 {isOnline(worker.last_seen) ? 'online' : 'stale heartbeat'}
               </span>
               <h1 className="k-mono m-0 text-[26px]">{worker.id}</h1>

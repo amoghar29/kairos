@@ -1,10 +1,10 @@
-import { getConsumer, getQueues } from '../api/client';
-import { Blueprint } from '../components/Blueprint';
-import { LogStream } from '../components/LogStream';
-import { HEARTBEAT_STALE_SECONDS } from '../config';
-import { badgeStyle } from '../lib/badge';
-import { EM_DASH, rel } from '../lib/format';
-import { useResource } from '../lib/resource';
+import { Blueprint } from '@/components/Blueprint';
+import { LogStream } from '@/components/LogStream';
+import { HEARTBEAT_STALE_SECONDS } from '@/constants';
+import { useResource } from '@/hooks/useResource';
+import { getConsumer, getQueues } from '@/services';
+import { badgeStyle } from '@/utils/badge';
+import { EM_DASH, rel } from '@/utils/format';
 
 function isConsumerHealthy(heartbeatAt: string | null): boolean {
   if (!heartbeatAt) return false;

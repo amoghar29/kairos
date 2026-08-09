@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
+
 import { Link } from 'react-router-dom';
-import { createJob } from '../api/client';
-import { asApiError, type ApiError } from '../api/error';
-import { QUEUES } from '../config';
-import { Blueprint } from '../components/Blueprint';
+
+import { Blueprint } from '@/components/Blueprint';
+import { QUEUES } from '@/constants';
+import { createJob } from '@/services';
+import { type ApiError, asApiError } from '@/services/api';
 
 const DEFAULT_PAYLOAD = '{\n  "to": "a@b.com",\n  "template": "welcome"\n}';
 
@@ -175,7 +177,9 @@ export function Submit() {
                 value={payload}
                 onChange={(e) => setPayload(e.target.value)}
               />
-              {payloadError && <div className="mt-1.5 text-[11.5px] text-bad-ink">{payloadError}</div>}
+              {payloadError && (
+                <div className="mt-1.5 text-[11.5px] text-bad-ink">{payloadError}</div>
+              )}
             </div>
 
             <div className="flex items-center gap-3">

@@ -1,10 +1,12 @@
 import { useNavigate } from 'react-router-dom';
-import { getWorkers } from '../api/client';
-import { HEARTBEAT_STALE_SECONDS } from '../config';
-import { Blueprint } from '../components/Blueprint';
-import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/Panels';
-import { dur, rel } from '../lib/format';
-import { useResource, useStatus } from '../lib/resource';
+
+import { Blueprint } from '@/components/Blueprint';
+import { EmptyPanel, ErrorPanel, LoadingPanel } from '@/components/Panels';
+import { HEARTBEAT_STALE_SECONDS } from '@/constants';
+import { useStatus } from '@/contexts/StatusContext';
+import { useResource } from '@/hooks/useResource';
+import { getWorkers } from '@/services';
+import { dur, rel } from '@/utils/format';
 
 export function staleSeconds(lastSeen: string): number {
   return (Date.now() - Date.parse(lastSeen)) / 1000;

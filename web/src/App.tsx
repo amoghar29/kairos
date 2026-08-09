@@ -1,20 +1,36 @@
-import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { ROWS_PER_PAGE } from './config';
-import { Shell } from './components/Shell';
-import { EmptyPanel } from './components/Panels';
-import { useKeyboard, useTicker } from './lib/hooks';
-import { StatusProvider, useStatus } from './lib/resource';
-import { jobsHref } from './lib/route';
-import type { JobState } from './api/types';
-import { Consumer } from './pages/Consumer';
-import { JobDetail } from './pages/JobDetail';
-import { Jobs } from './pages/Jobs';
-import { Overview } from './pages/Overview';
-import { Submit } from './pages/Submit';
-import { WorkerDetail } from './pages/WorkerDetail';
-import { Workers } from './pages/Workers';
+import {
+  BrowserRouter,
+  Link,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom';
 
-const GOTO: Record<string, string> = { o: '/', j: '/jobs', w: '/workers', c: '/consumer', s: '/submit' };
+import { EmptyPanel } from '@/components/Panels';
+import { Shell } from '@/components/Shell';
+import { ROWS_PER_PAGE } from '@/constants';
+import { StatusProvider, useStatus } from '@/contexts/StatusContext';
+import { useKeyboard } from '@/hooks/useKeyboard';
+import { useTicker } from '@/hooks/useTicker';
+import { Consumer } from '@/screens/Consumer';
+import { JobDetail } from '@/screens/JobDetail';
+import { Jobs } from '@/screens/Jobs';
+import { Overview } from '@/screens/Overview';
+import { Submit } from '@/screens/Submit';
+import { WorkerDetail } from '@/screens/WorkerDetail';
+import { Workers } from '@/screens/Workers';
+import type { JobState } from '@/services/types';
+import { jobsHref } from '@/utils/route';
+
+const GOTO: Record<string, string> = {
+  o: '/',
+  j: '/jobs',
+  w: '/workers',
+  c: '/consumer',
+  s: '/submit',
+};
 
 function AppShell() {
   const { refresh } = useStatus();

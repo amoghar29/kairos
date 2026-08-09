@@ -1,5 +1,6 @@
-import type { LogLine } from '../api/types';
-import { clock } from '../lib/format';
+import type { LogLine } from '@/services/types';
+import { clock } from '@/utils/format';
+
 import { Blueprint } from './Blueprint';
 
 interface Props {

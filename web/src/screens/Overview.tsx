@@ -1,11 +1,13 @@
 import { useNavigate } from 'react-router-dom';
-import { getQueues, getWorkers } from '../api/client';
-import type { QueueStats, Worker } from '../api/types';
-import { Blueprint } from '../components/Blueprint';
-import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/Panels';
-import { ageStyle } from '../lib/badge';
-import { EM_DASH, dur } from '../lib/format';
-import { useResource, useStatus } from '../lib/resource';
+
+import { Blueprint } from '@/components/Blueprint';
+import { EmptyPanel, ErrorPanel, LoadingPanel } from '@/components/Panels';
+import { useStatus } from '@/contexts/StatusContext';
+import { useResource } from '@/hooks/useResource';
+import { getQueues, getWorkers } from '@/services';
+import type { QueueStats, Worker } from '@/services/types';
+import { ageStyle } from '@/utils/badge';
+import { EM_DASH, dur } from '@/utils/format';
 
 function Tile({ label, value }: { label: string; value: string | number }) {
   return (
@@ -19,8 +21,7 @@ function Tile({ label, value }: { label: string; value: string | number }) {
 function QueueRow({ q, workers }: { q: QueueStats; workers: Worker[] }) {
   const navigate = useNavigate();
   const workerCount = workers.filter((w) => w.queues.includes(q.queue)).length;
-  const backlog =
-    q.counts.pending + q.counts.queued + q.counts.running + q.counts.awaiting_retry;
+  const backlog = q.counts.pending + q.counts.queued + q.counts.running + q.counts.awaiting_retry;
   // Work waiting with nobody subscribed to it: the queue is dead, not merely idle.
   const isDead = workerCount === 0 && backlog > 0;
   const open = () => navigate(`/jobs?queue=${q.queue}`);
@@ -48,7 +49,10 @@ function QueueRow({ q, workers }: { q: QueueStats; workers: Worker[] }) {
       </td>
       <td
         className="k-num"
-        style={{ color: workerCount === 0 ? '#7f2320' : '#5d5d60', fontWeight: workerCount === 0 ? 700 : 500 }}
+        style={{
+          color: workerCount === 0 ? '#7f2320' : '#5d5d60',
+          fontWeight: workerCount === 0 ? 700 : 500,
+        }}
       >
         {workerCount}
       </td>
@@ -59,7 +63,9 @@ function QueueRow({ q, workers }: { q: QueueStats; workers: Worker[] }) {
       <td className="k-num text-muted">{q.redis_buffered ?? EM_DASH}</td>
       <td>
         {q.counts.pending ? (
-          <span style={ageStyle(q.oldest_pending_age_seconds)}>{dur(q.oldest_pending_age_seconds)}</span>
+          <span style={ageStyle(q.oldest_pending_age_seconds)}>
+            {dur(q.oldest_pending_age_seconds)}
+          </span>
         ) : (
           <span className="px-2 py-px text-[13px] text-hairline">{EM_DASH}</span>
         )}

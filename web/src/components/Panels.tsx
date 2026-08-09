@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
-import type { ApiError } from '../api/error';
+
+import type { ApiError } from '@/services/api';
+
 import { Blueprint } from './Blueprint';
 
 export function LoadingPanel({ label }: { label: string }) {
@@ -41,7 +43,9 @@ export function EmptyPanel({
   return (
     <Blueprint className="k-panel-empty">
       <div className="font-cond text-[17px] font-semibold">{title}</div>
-      {detail && <div className="mx-auto mt-1.5 max-w-[520px] text-[12.5px] text-muted">{detail}</div>}
+      {detail && (
+        <div className="mx-auto mt-1.5 max-w-[520px] text-[12.5px] text-muted">{detail}</div>
+      )}
       {action && <div className="mt-3.5">{action}</div>}
     </Blueprint>
   );

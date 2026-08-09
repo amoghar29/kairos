@@ -1,27 +1,7 @@
 export type JobState =
-  | 'pending'
-  | 'queued'
-  | 'running'
-  | 'awaiting_retry'
-  | 'success'
-  | 'dead'
-  | 'cancelled';
+  'pending' | 'queued' | 'running' | 'awaiting_retry' | 'success' | 'dead' | 'cancelled';
 
 export type AttemptOutcome = 'in_progress' | 'success' | 'failed' | 'cancelled' | 'superseded';
-
-export const JOB_STATES: JobState[] = [
-  'pending',
-  'queued',
-  'running',
-  'awaiting_retry',
-  'success',
-  'dead',
-  'cancelled',
-];
-
-export const NON_TERMINAL_STATES: JobState[] = ['pending', 'queued', 'running', 'awaiting_retry'];
-
-export const CANCELLABLE_STATES: JobState[] = ['pending', 'queued', 'awaiting_retry'];
 
 export interface Job {
   id: string;

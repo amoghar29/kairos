@@ -1,16 +1,19 @@
 import { Fragment, useState } from 'react';
+
 import { Link, useNavigate } from 'react-router-dom';
-import { listAttempts, listJobs } from '../api/client';
-import type { Job, JobAttempt, JobState } from '../api/types';
-import { JOB_STATES } from '../api/types';
-import { QUEUES, ROWS_PER_PAGE } from '../config';
-import { Badge } from '../components/Badge';
-import { Blueprint } from '../components/Blueprint';
-import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/Panels';
-import { priorityStyle, retryStyle } from '../lib/badge';
-import { EM_DASH, relShort, shortId, span } from '../lib/format';
-import { jobsHref, useJobsFilter, type JobsFilter } from '../lib/route';
-import { useResource, useStatus } from '../lib/resource';
+
+import { Badge } from '@/components/Badge';
+import { Blueprint } from '@/components/Blueprint';
+import { EmptyPanel, ErrorPanel, LoadingPanel } from '@/components/Panels';
+import { JOB_STATES, QUEUES, ROWS_PER_PAGE } from '@/constants';
+import { useStatus } from '@/contexts/StatusContext';
+import { useJobsFilter } from '@/hooks/useJobsFilter';
+import { useResource } from '@/hooks/useResource';
+import { listAttempts, listJobs } from '@/services';
+import type { Job, JobAttempt, JobState } from '@/services/types';
+import { priorityStyle, retryStyle } from '@/utils/badge';
+import { EM_DASH, relShort, shortId, span } from '@/utils/format';
+import { type JobsFilter, jobsHref } from '@/utils/route';
 
 type SortKey = 'id' | 'name' | 'queue' | 'priority' | 'retry_count' | 'created_at' | 'updated_at';
 
@@ -49,7 +52,9 @@ function AttemptsInline({ jobId }: { jobId: string }) {
 
   const attempts = res.data?.attempts ?? [];
   if (attempts.length === 0) {
-    return <div className="text-[11.5px] text-muted">No attempts yet — not delivered to a worker.</div>;
+    return (
+      <div className="text-[11.5px] text-muted">No attempts yet — not delivered to a worker.</div>
+    );
   }
 
   return (
@@ -73,7 +78,12 @@ function AttemptsInline({ jobId }: { jobId: string }) {
         </thead>
         <tbody>
           {attempts.map((a: JobAttempt) => (
-            <tr key={a.id} className="k-click" onClick={() => navigate(`/jobs/${jobId}`)} title="Open full job detail">
+            <tr
+              key={a.id}
+              className="k-click"
+              onClick={() => navigate(`/jobs/${jobId}`)}
+              title="Open full job detail"
+            >
               <td className="k-num text-muted">{a.attempt_number}</td>
               <td className="k-mono whitespace-nowrap">{a.worker_id}</td>
               <td>
@@ -83,7 +93,9 @@ function AttemptsInline({ jobId }: { jobId: string }) {
                 {a.error ?? EM_DASH}
               </td>
               <td className="k-num text-dim">{relShort(a.started_at)}</td>
-              <td className="k-num">{a.finished_at ? span(a.started_at, a.finished_at) : 'running…'}</td>
+              <td className="k-num">
+                {a.finished_at ? span(a.started_at, a.finished_at) : 'running…'}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -116,11 +128,19 @@ export function Jobs() {
   const res = useResource(key, () => listJobs(query));
 
   const setFilters = (next: Partial<Pick<JobsFilter, 'states' | 'queue'>>) => {
-    navigate(jobsHref({ states: next.states ?? route.states, queue: next.queue ?? route.queue, offset: 0 }));
+    navigate(
+      jobsHref({
+        states: next.states ?? route.states,
+        queue: next.queue ?? route.queue,
+        offset: 0,
+      }),
+    );
   };
 
   const toggleState = (s: JobState) => {
-    const states = route.states.includes(s) ? route.states.filter((x) => x !== s) : [...route.states, s];
+    const states = route.states.includes(s)
+      ? route.states.filter((x) => x !== s)
+      : [...route.states, s];
     setFilters({ states });
   };
 
@@ -141,14 +161,18 @@ export function Jobs() {
   if (sortKey) {
     const dir = sortDir === 'asc' ? 1 : -1;
     rows = rows.slice().sort((a, b) => {
-      const av = sortKey === 'created_at' || sortKey === 'updated_at' ? Date.parse(a[sortKey]) : a[sortKey];
-      const bv = sortKey === 'created_at' || sortKey === 'updated_at' ? Date.parse(b[sortKey]) : b[sortKey];
+      const av =
+        sortKey === 'created_at' || sortKey === 'updated_at' ? Date.parse(a[sortKey]) : a[sortKey];
+      const bv =
+        sortKey === 'created_at' || sortKey === 'updated_at' ? Date.parse(b[sortKey]) : b[sortKey];
       return av < bv ? -dir : av > bv ? dir : 0;
     });
   }
 
   const page = res.data?.pagination;
-  const urlQuery = jobsHref({ states: route.states, queue: route.queue, offset: route.offset }).split('?')[1] ?? '';
+  const urlQuery =
+    jobsHref({ states: route.states, queue: route.queue, offset: route.offset }).split('?')[1] ??
+    '';
   const summary = [
     route.states.length ? `${route.states.length} of ${JOB_STATES.length} states` : 'all states',
     route.queue ? `queue ${route.queue}` : 'all queues',
@@ -174,8 +198,8 @@ export function Jobs() {
         <div className="k-caveat">
           <b>state / queue narrowing is client-side</b> — <code>GET /v1/jobs</code> takes only{' '}
           <code>limit</code> and <code>offset</code> today, so the filter applies to this page of{' '}
-          {ROWS_PER_PAGE} rows, not the whole store. Counts and paging reflect the unfiltered
-          result set. See changes_req.md.
+          {ROWS_PER_PAGE} rows, not the whole store. Counts and paging reflect the unfiltered result
+          set. See changes_req.md.
         </div>
       )}
 
@@ -208,7 +232,11 @@ export function Jobs() {
             placeholder="send_email or 0e04…"
           />
         </div>
-        <button type="button" className="btn btn-secondary min-h-[30px] px-3 py-1" onClick={clearFilters}>
+        <button
+          type="button"
+          className="btn btn-secondary min-h-[30px] px-3 py-1"
+          onClick={clearFilters}
+        >
           Clear filters
         </button>
         <div className="ml-auto text-right text-[11px] leading-relaxed text-muted">
@@ -251,7 +279,11 @@ export function Jobs() {
               <thead>
                 <tr>
                   <th style={{ width: 26 }} />
-                  <th className="cursor-pointer" style={{ width: 130 }} onClick={() => toggleSort('id')}>
+                  <th
+                    className="cursor-pointer"
+                    style={{ width: 130 }}
+                    onClick={() => toggleSort('id')}
+                  >
                     id{arrow('id')}
                   </th>
                   <th className="cursor-pointer" onClick={() => toggleSort('name')}>
@@ -306,7 +338,11 @@ export function Jobs() {
                         <td>
                           <Badge value={j.state} />
                         </td>
-                        <td className="k-num" style={priorityStyle(j.priority)} title="1 is highest, 10 lowest">
+                        <td
+                          className="k-num"
+                          style={priorityStyle(j.priority)}
+                          title="1 is highest, 10 lowest"
+                        >
                           {j.priority}
                         </td>
                         <td className="k-num" style={retryStyle(j.retry_count)}>
