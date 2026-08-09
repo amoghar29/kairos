@@ -375,7 +375,7 @@ const reclaimStaleJobs = `-- name: ReclaimStaleJobs :many
 UPDATE jobs
 SET delivery_count = delivery_count + 1,
     state = CASE
-        WHEN delivery_count + 1 > $1::int THEN 'dead'
+        WHEN delivery_count + 1 > $1::int THEN 'dead'::job_state
         ELSE 'awaiting_retry'
     END,
     next_check_at = CASE
@@ -425,7 +425,7 @@ func (q *Queries) ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) 
 const recordHandlerFailure = `-- name: RecordHandlerFailure :one
 UPDATE jobs
 SET retry_count = retry_count + 1,
-    state = CASE WHEN retry_count + 1 >= max_retries THEN 'dead' ELSE 'awaiting_retry' END,
+    state = CASE WHEN retry_count + 1 >= max_retries THEN 'dead'::job_state ELSE 'awaiting_retry' END,
     next_check_at = CASE WHEN retry_count + 1 >= max_retries THEN NULL ELSE $3 END,
     version = version + 1
 WHERE id = $1 AND version = $2
@@ -440,42 +440,6 @@ type RecordHandlerFailureParams struct {
 
 func (q *Queries) RecordHandlerFailure(ctx context.Context, arg RecordHandlerFailureParams) (Job, error) {
 	row := q.db.QueryRow(ctx, recordHandlerFailure, arg.ID, arg.Version, arg.NextCheckAt)
-	var i Job
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Queue,
-		&i.State,
-		&i.Payload,
-		&i.Priority,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.DeliveryCount,
-		&i.Version,
-		&i.NextCheckAt,
-		&i.IdempotencyKey,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const refreshHeartbeat = `-- name: RefreshHeartbeat :one
-UPDATE jobs
-SET next_check_at = now() + $3::interval,
-    version = version + 1
-WHERE id = $1 AND version = $2 AND state = 'running'
-RETURNING id, name, queue, state, payload, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
-`
-
-type RefreshHeartbeatParams struct {
-	ID             pgtype.UUID     `json:"id"`
-	Version        int32           `json:"version"`
-	StaleThreshold pgtype.Interval `json:"stale_threshold"`
-}
-
-func (q *Queries) RefreshHeartbeat(ctx context.Context, arg RefreshHeartbeatParams) (Job, error) {
-	row := q.db.QueryRow(ctx, refreshHeartbeat, arg.ID, arg.Version, arg.StaleThreshold)
 	var i Job
 	err := row.Scan(
 		&i.ID,

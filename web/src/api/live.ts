@@ -10,19 +10,20 @@ import type {
   Worker,
 } from './types';
 
-const BASE = '/v1';
+const BASE = 'http://localhost:8000/v1';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = BASE + path;
   let res: Response;
   try {
-    res = await fetch(BASE + path, {
+    res = await fetch(url, {
       ...init,
       headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
     });
   } catch (e) {
     throw new ApiError(
       'unreachable',
-      `could not reach the scheduler API at ${BASE}: ${e instanceof Error ? e.message : String(e)}`,
+      `could not reach the scheduler API at ${url}: ${e instanceof Error ? e.message : String(e)}`,
       0,
     );
   }

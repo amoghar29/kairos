@@ -41,7 +41,7 @@ RETURNING *;
 -- name: RecordHandlerFailure :one
 UPDATE jobs
 SET retry_count = retry_count + 1,
-    state = CASE WHEN retry_count + 1 >= max_retries THEN 'dead' ELSE 'awaiting_retry' END,
+    state = CASE WHEN retry_count + 1 >= max_retries THEN 'dead'::job_state ELSE 'awaiting_retry' END,
     next_check_at = CASE WHEN retry_count + 1 >= max_retries THEN NULL ELSE $3 END,
     version = version + 1
 WHERE id = $1 AND version = $2
@@ -65,19 +65,11 @@ SET outcome = $2, error = $3, finished_at = now()
 WHERE id = $1
 RETURNING *;
 
--- name: RefreshHeartbeat :one
-UPDATE jobs
-SET next_check_at = now() + sqlc.arg(stale_threshold)::interval,
-    version = version + 1
-WHERE id = $1 AND version = $2 AND state = 'running'
-RETURNING *;
-
-
 -- name: ReclaimStaleJobs :many
 UPDATE jobs
 SET delivery_count = delivery_count + 1,
     state = CASE
-        WHEN delivery_count + 1 > sqlc.arg(max_delivery_count)::int THEN 'dead'
+        WHEN delivery_count + 1 > sqlc.arg(max_delivery_count)::int THEN 'dead'::job_state
         ELSE 'awaiting_retry'
     END,
     next_check_at = CASE

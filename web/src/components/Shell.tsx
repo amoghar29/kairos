@@ -1,13 +1,14 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { dur } from '../lib/format';
 import { useStatus } from '../lib/resource';
 
 const NAV = [
-  { href: '#/', label: 'Overview', match: (p: string) => p === '/' },
-  { href: '#/jobs', label: 'Jobs', match: (p: string) => p.startsWith('/jobs') },
-  { href: '#/workers', label: 'Workers', match: (p: string) => p.startsWith('/workers') },
-  { href: '#/consumer', label: 'Consumer', match: (p: string) => p === '/consumer' },
-  { href: '#/submit', label: 'Submit', match: (p: string) => p === '/submit' },
+  { href: '/', label: 'Overview', match: (p: string) => p === '/' },
+  { href: '/jobs', label: 'Jobs', match: (p: string) => p.startsWith('/jobs') },
+  { href: '/workers', label: 'Workers', match: (p: string) => p.startsWith('/workers') },
+  { href: '/consumer', label: 'Consumer', match: (p: string) => p === '/consumer' },
+  { href: '/submit', label: 'Submit', match: (p: string) => p === '/submit' },
 ];
 
 export function Shell({ path, children }: { path: string; children: ReactNode }) {
@@ -25,15 +26,15 @@ export function Shell({ path, children }: { path: string; children: ReactNode })
     <div className="k-page">
       <header className="k-header">
         <div className="k-header-bar">
-          <a href="#/" className="k-brand">
+          <Link to="/" className="k-brand">
             <span className="k-brand-name">KAIROS</span>
             <span className="k-brand-sub">scheduler ops</span>
-          </a>
+          </Link>
           <nav className="k-nav">
             {NAV.map((item) => (
-              <a key={item.href} href={item.href} aria-current={item.match(path) ? 'page' : undefined}>
+              <Link key={item.href} to={item.href} aria-current={item.match(path) ? 'page' : undefined}>
                 {item.label}
-              </a>
+              </Link>
             ))}
           </nav>
           <div className="flex items-center gap-2 text-[11px] tracking-[.02em] text-muted">

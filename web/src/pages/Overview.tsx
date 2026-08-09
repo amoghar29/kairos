@@ -1,10 +1,10 @@
+import { useNavigate } from 'react-router-dom';
 import { getQueues, getWorkers } from '../api/client';
 import type { QueueStats, Worker } from '../api/types';
 import { Blueprint } from '../components/Blueprint';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/Panels';
 import { ageStyle } from '../lib/badge';
 import { EM_DASH, dur } from '../lib/format';
-import { go } from '../lib/route';
 import { useResource, useStatus } from '../lib/resource';
 
 function Tile({ label, value }: { label: string; value: string | number }) {
@@ -17,12 +17,13 @@ function Tile({ label, value }: { label: string; value: string | number }) {
 }
 
 function QueueRow({ q, workers }: { q: QueueStats; workers: Worker[] }) {
+  const navigate = useNavigate();
   const workerCount = workers.filter((w) => w.queues.includes(q.queue)).length;
   const backlog =
     q.counts.pending + q.counts.queued + q.counts.running + q.counts.awaiting_retry;
   // Work waiting with nobody subscribed to it: the queue is dead, not merely idle.
   const isDead = workerCount === 0 && backlog > 0;
-  const open = () => go(`#/jobs?queue=${q.queue}`);
+  const open = () => navigate(`/jobs?queue=${q.queue}`);
 
   return (
     <tr

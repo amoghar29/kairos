@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { cancelJob, getJob, listAttempts, rerunJob } from '../api/client';
 import { asApiError, type ApiError } from '../api/error';
 import type { Job, JobAttempt, LogLine } from '../api/types';
@@ -102,7 +103,8 @@ function AttemptRow({ a }: { a: JobAttempt }) {
   );
 }
 
-export function JobDetail({ jobId }: { jobId: string }) {
+export function JobDetail() {
+  const { jobId = '' } = useParams<{ jobId: string }>();
   const { retry, refresh } = useStatus();
   const job = useResource(`job:${jobId}`, () => getJob(jobId));
   const attempts = useResource(`job-attempts:${jobId}`, () => listAttempts(jobId));
@@ -343,9 +345,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
 function Breadcrumb({ jobId }: { jobId: string }) {
   return (
     <div className="mb-2.5 text-[11.5px] text-muted">
-      <a href="#/jobs" className="no-underline">
+      <Link to="/jobs" className="no-underline">
         ← Jobs
-      </a>
+      </Link>
       <span className="mx-2">/</span>
       <span className="k-mono">{jobId}</span>
     </div>

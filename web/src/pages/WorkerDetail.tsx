@@ -1,3 +1,4 @@
+import { Link, useParams } from 'react-router-dom';
 import { getWorkers } from '../api/client';
 import { Blueprint } from '../components/Blueprint';
 import { ErrorPanel, LoadingPanel } from '../components/Panels';
@@ -6,7 +7,8 @@ import { dur, rel } from '../lib/format';
 import { useResource, useStatus } from '../lib/resource';
 import { isOnline, staleSeconds } from './Workers';
 
-export function WorkerDetail({ workerId }: { workerId: string }) {
+export function WorkerDetail() {
+  const { workerId = '' } = useParams<{ workerId: string }>();
   const { retry } = useStatus();
   const res = useResource('workers', getWorkers);
 
@@ -15,9 +17,9 @@ export function WorkerDetail({ workerId }: { workerId: string }) {
   return (
     <div>
       <div className="mb-2.5 text-[11.5px] text-muted">
-        <a href="#/workers" className="no-underline">
+        <Link to="/workers" className="no-underline">
           ← Workers
-        </a>
+        </Link>
         <span className="mx-2">/</span>
         <span className="k-mono">{workerId}</span>
       </div>

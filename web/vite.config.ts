@@ -2,18 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-// Relative base so the built bundle can later be served from any path (or embedded in the
-// Go binary) without a rebuild. The proxy is dev-only: in production the API serves the
-// bundle, so /v1 is already same-origin.
+// Absolute base: routing uses real paths (history API) now, not hash fragments, so asset
+// URLs must resolve the same way from /jobs/:id as from /. No dev proxy for now: the API is
+// hit directly on :8000 (CORS enabled backend-side) and will become same-origin once the Go
+// binary serves the bundle itself.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: './',
+  base: '/',
   build: { outDir: 'dist', sourcemap: true },
   server: {
     port: 5173,
-    proxy: {
-      '/v1': { target: 'http://localhost:8080', changeOrigin: true },
-      '/healthz': { target: 'http://localhost:8080', changeOrigin: true },
-    },
   },
 });

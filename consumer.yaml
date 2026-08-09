@@ -1,4 +1,4 @@
-poll_interval: 30
+poll_interval: 5
 stale_threshold: 60
 heartbeat_interval: 2
 queue_limit: 10

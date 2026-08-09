@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { listAttempts, listJobs } from '../api/client';
 import type { Job, JobAttempt, JobState } from '../api/types';
 import { JOB_STATES } from '../api/types';
@@ -8,7 +9,7 @@ import { Blueprint } from '../components/Blueprint';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/Panels';
 import { priorityStyle, retryStyle } from '../lib/badge';
 import { EM_DASH, relShort, shortId, span } from '../lib/format';
-import { go, jobsHref, type Route } from '../lib/route';
+import { jobsHref, useJobsFilter, type JobsFilter } from '../lib/route';
 import { useResource, useStatus } from '../lib/resource';
 
 type SortKey = 'id' | 'name' | 'queue' | 'priority' | 'retry_count' | 'created_at' | 'updated_at';
@@ -40,6 +41,7 @@ function StateChips({ active, onToggle }: { active: JobState[]; onToggle: (s: Jo
 }
 
 function AttemptsInline({ jobId }: { jobId: string }) {
+  const navigate = useNavigate();
   const res = useResource(`attempts:${jobId}`, () => listAttempts(jobId));
 
   if (res.loading) return <div className="text-[11.5px] text-muted">loading attempts…</div>;
@@ -71,7 +73,7 @@ function AttemptsInline({ jobId }: { jobId: string }) {
         </thead>
         <tbody>
           {attempts.map((a: JobAttempt) => (
-            <tr key={a.id} className="k-click" onClick={() => go(`#/jobs/${jobId}`)} title="Open full job detail">
+            <tr key={a.id} className="k-click" onClick={() => navigate(`/jobs/${jobId}`)} title="Open full job detail">
               <td className="k-num text-muted">{a.attempt_number}</td>
               <td className="k-mono whitespace-nowrap">{a.worker_id}</td>
               <td>
@@ -87,15 +89,17 @@ function AttemptsInline({ jobId }: { jobId: string }) {
         </tbody>
       </table>
       <div className="mt-1.5">
-        <a href={`#/jobs/${jobId}`} className="text-[11.5px] no-underline">
+        <Link to={`/jobs/${jobId}`} className="text-[11.5px] no-underline">
           open full job detail →
-        </a>
+        </Link>
       </div>
     </>
   );
 }
 
-export function Jobs({ route }: { route: Route }) {
+export function Jobs() {
+  const navigate = useNavigate();
+  const route = useJobsFilter();
   const { retry } = useStatus();
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -111,8 +115,8 @@ export function Jobs({ route }: { route: Route }) {
   const key = `jobs:${route.states.join(',')}|${route.queue}|${route.offset}`;
   const res = useResource(key, () => listJobs(query));
 
-  const setFilters = (next: Partial<Pick<Route, 'states' | 'queue'>>) => {
-    go(jobsHref({ states: next.states ?? route.states, queue: next.queue ?? route.queue, offset: 0 }));
+  const setFilters = (next: Partial<Pick<JobsFilter, 'states' | 'queue'>>) => {
+    navigate(jobsHref({ states: next.states ?? route.states, queue: next.queue ?? route.queue, offset: 0 }));
   };
 
   const toggleState = (s: JobState) => {
@@ -154,7 +158,7 @@ export function Jobs({ route }: { route: Route }) {
   const clearFilters = () => {
     setSearch('');
     setSortKey(null);
-    go('#/jobs');
+    navigate('/jobs');
   };
 
   return (
@@ -293,9 +297,9 @@ export function Jobs({ route }: { route: Route }) {
                           </button>
                         </td>
                         <td>
-                          <a href={`#/jobs/${j.id}`} className="k-mono no-underline">
+                          <Link to={`/jobs/${j.id}`} className="k-mono no-underline">
                             {shortId(j.id)}
-                          </a>
+                          </Link>
                         </td>
                         <td className="font-cond text-[14.5px] font-semibold">{j.name}</td>
                         <td className="text-dim">{j.queue}</td>
@@ -339,7 +343,7 @@ export function Jobs({ route }: { route: Route }) {
               className="btn btn-secondary min-h-[30px] px-3 py-1"
               disabled={route.offset === 0}
               onClick={() =>
-                go(
+                navigate(
                   jobsHref({
                     states: route.states,
                     queue: route.queue,
@@ -355,7 +359,7 @@ export function Jobs({ route }: { route: Route }) {
               className="btn btn-secondary min-h-[30px] px-3 py-1"
               disabled={!page?.has_more}
               onClick={() =>
-                go(
+                navigate(
                   jobsHref({
                     states: route.states,
                     queue: route.queue,

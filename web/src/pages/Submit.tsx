@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { createJob } from '../api/client';
 import { asApiError, type ApiError } from '../api/error';
 import { QUEUES } from '../config';
@@ -6,18 +7,31 @@ import { Blueprint } from '../components/Blueprint';
 
 const DEFAULT_PAYLOAD = '{\n  "to": "a@b.com",\n  "template": "welcome"\n}';
 
+// Keyed on the exact fields that go in the request body: while they're unchanged, repeat
+// clicks of "Submit job" replay the same key instead of minting a new job every time.
+function idempotencySignature(fields: {
+  name: string;
+  queue: string;
+  payload: string;
+  priority: string;
+  maxRetries: string;
+}): string {
+  return JSON.stringify(fields);
+}
+
 export function Submit() {
   const [name, setName] = useState('send_email');
   const [queue, setQueue] = useState(QUEUES[0] ?? '');
   const [priority, setPriority] = useState('5');
   const [maxRetries, setMaxRetries] = useState('3');
   const [payload, setPayload] = useState(DEFAULT_PAYLOAD);
-  const [idem, setIdem] = useState('');
 
   const [payloadError, setPayloadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<ApiError | null>(null);
   const [result, setResult] = useState<{ id: string; created: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const idemRef = useRef<{ key: string; signature: string } | null>(null);
 
   const parsePayload = (): unknown | undefined => {
     try {
@@ -27,13 +41,16 @@ export function Submit() {
     }
   };
 
+  const signature = idempotencySignature({ name, queue, payload, priority, maxRetries });
+  const reusableKey = idemRef.current?.signature === signature ? idemRef.current.key : null;
+
   const body = {
     name,
     queue,
     payload: parsePayload() ?? null,
     priority: Number(priority),
     max_retries: Number(maxRetries),
-    ...(idem ? { idempotency_key: idem } : {}),
+    idempotency_key: reusableKey ?? '<generated on submit>',
   };
 
   // The real endpoint takes idempotency_key in the body, not as a header — the preview shows
@@ -68,13 +85,15 @@ export function Submit() {
     setResult(null);
     setBusy(true);
     try {
+      const idempotency_key = reusableKey ?? crypto.randomUUID();
+      idemRef.current = { key: idempotency_key, signature };
       const { job, created } = await createJob({
         name,
         queue,
         payload: parsed,
         priority: Number(priority),
         max_retries: Number(maxRetries),
-        ...(idem ? { idempotency_key: idem } : {}),
+        idempotency_key,
       });
       setResult({ id: job.id, created });
     } catch (e) {
@@ -159,17 +178,6 @@ export function Submit() {
               {payloadError && <div className="mt-1.5 text-[11.5px] text-bad-ink">{payloadError}</div>}
             </div>
 
-            <div className="field">
-              <label htmlFor="job-idem">idempotency_key · optional</label>
-              <input
-                id="job-idem"
-                className="input k-mono text-[12.5px]"
-                value={idem}
-                onChange={(e) => setIdem(e.target.value)}
-                placeholder="leave blank to omit the field"
-              />
-            </div>
-
             <div className="flex items-center gap-3">
               <button type="button" className="btn btn-primary" onClick={submit} disabled={busy}>
                 {busy ? 'submitting…' : 'Submit job'}
@@ -202,9 +210,9 @@ export function Submit() {
                     ? '201 created · state pending'
                     : '200 ok · idempotency key replayed an existing job'}
                 </div>
-                <a href={`#/jobs/${result.id}`} className="k-mono text-[12.5px]">
+                <Link to={`/jobs/${result.id}`} className="k-mono text-[12.5px]">
                   {result.id} →
-                </a>
+                </Link>
               </div>
             )}
           </div>

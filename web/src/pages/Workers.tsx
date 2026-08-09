@@ -1,9 +1,9 @@
+import { useNavigate } from 'react-router-dom';
 import { getWorkers } from '../api/client';
 import { HEARTBEAT_STALE_SECONDS } from '../config';
 import { Blueprint } from '../components/Blueprint';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/Panels';
 import { dur, rel } from '../lib/format';
-import { go } from '../lib/route';
 import { useResource, useStatus } from '../lib/resource';
 
 export function staleSeconds(lastSeen: string): number {
@@ -15,6 +15,7 @@ export function isOnline(lastSeen: string): boolean {
 }
 
 export function Workers() {
+  const navigate = useNavigate();
   const { retry } = useStatus();
   const res = useResource('workers', getWorkers);
 
@@ -57,7 +58,7 @@ export function Workers() {
                 <tr
                   key={w.id}
                   className="k-click"
-                  onClick={() => go(`#/workers/${w.id}`)}
+                  onClick={() => navigate(`/workers/${w.id}`)}
                   title="Open worker detail"
                 >
                   <td className="k-mono text-[12.5px]">{w.id}</td>
