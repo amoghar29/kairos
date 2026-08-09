@@ -71,18 +71,18 @@ func (jc *JobConsumer) markJobAsQueued(ctx context.Context, ids []pgtype.UUID) (
 	return jc.jobRepository.MarksJobAsQueued(ctx, ids)
 }
 
-func (jc *JobConsumer) runOnce(ctx context.Context)(int, error) {
+func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 	if err := jc.reclaimStale(ctx); err != nil {
-		return 0,err
+		return 0, err
 	}
 
 	jobs, err := jc.claimDue(ctx)
 	if err != nil {
-		return 0,fmt.Errorf("claim due jobs: %w", err)
+		return 0, fmt.Errorf("claim due jobs: %w", err)
 	}
 
 	if len(jobs) == 0 {
-		return 0,nil
+		return 0, nil
 	}
 
 	//  push to redis first and then update postgres
@@ -92,9 +92,9 @@ func (jc *JobConsumer) runOnce(ctx context.Context)(int, error) {
 	pushed, err := jc.pushJobsToRedis(ctx, jobs)
 	if len(pushed) == 0 {
 		if err != nil {
-			return 0,fmt.Errorf("push jobs to redis: %w", err)
+			return 0, fmt.Errorf("push jobs to redis: %w", err)
 		}
-		return 0,nil
+		return 0, nil
 	}
 	if err != nil {
 		// Some queues made it. Mark those and let the rest come back next poll.
@@ -109,7 +109,7 @@ func (jc *JobConsumer) runOnce(ctx context.Context)(int, error) {
 	if err != nil {
 		// The ids are in redis but still look unclaimed in postgres, so the next poll refetches
 		// and repushes them. At-least-once still holds; the count says how many may duplicate.
-		return 0,fmt.Errorf("mark %d pushed jobs as queued: %w", len(pushed), err)
+		return 0, fmt.Errorf("mark %d pushed jobs as queued: %w", len(pushed), err)
 	}
 	if len(queued) != len(pushed) {
 		jc.logger.Warn("some pushed jobs were no longer eligible to queue",
@@ -122,7 +122,7 @@ func (jc *JobConsumer) runOnce(ctx context.Context)(int, error) {
 		slog.Int("claimed", len(jobs)),
 		slog.Int("queued", len(queued)),
 	)
-	return len(queued),nil
+	return len(queued), nil
 }
 
 func (jc *JobConsumer) reclaimStale(ctx context.Context) error {
@@ -141,9 +141,7 @@ func (jc *JobConsumer) reclaimStale(ctx context.Context) error {
 		}
 	}
 
-	if len(reclaimed) > 0 {
-		jc.logger.Info("reclaimed stale jobs", slog.Int("count", len(reclaimed)))
-	}
+	jc.logger.Info("reclaimed stale jobs", slog.Int("count", len(reclaimed)))
 
 	return nil
 }
@@ -155,7 +153,6 @@ func (jc *JobConsumer) claimDue(ctx context.Context) ([]db.GetDueJobsRow, error)
 	}
 	return dueJobs, nil
 }
-
 
 func (jc *JobConsumer) RunConsumer(ctx context.Context) {
 	interval := time.Duration(jc.cfg.PollInterval) * time.Second

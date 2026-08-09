@@ -77,7 +77,7 @@ CREATE TABLE job_attempts (
     attempt_number    int             NOT NULL,
     worker_id         text            NOT NULL,
     outcome           attempt_outcome NOT NULL DEFAULT 'in_progress',
-    error             text,
+    result             text           DEFAULT NULL  ,
     started_at        timestamptz     NOT NULL DEFAULT now(),
     finished_at       timestamptz,
 

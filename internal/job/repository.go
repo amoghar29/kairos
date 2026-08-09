@@ -148,11 +148,81 @@ func (r *JobRepository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue 
 	return jobs, nil
 }
 
-
 func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
 	queued, err := r.q.MarkQueued(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("mark jobs as queued: %w", err)
 	}
 	return queued, nil
+}
+
+func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
+	claimed, err := r.q.ClaimJobForExecution(ctx, db.ClaimJobForExecutionParams{ID: id, StaleDeltaThreshold: staleDelta})
+	if err == nil {
+		return claimed, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return db.ClaimJobForExecutionRow{}, fmt.Errorf("claim job %s: %w", id, err)
+	}
+
+	if _, err := r.GetByID(ctx, id); err != nil {
+		return db.ClaimJobForExecutionRow{}, err
+	}
+	return db.ClaimJobForExecutionRow{}, ErrConflict
+}
+
+func (r *JobRepository) CreateAttempt(ctx context.Context, jobID pgtype.UUID, attemptNumber int32, workerID string) (pgtype.UUID, error) {
+	id, err := r.q.CreateJobAttempt(ctx, db.CreateJobAttemptParams{
+		JobID:         jobID,
+		AttemptNumber: attemptNumber,
+		WorkerID:      workerID,
+	})
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("create attempt for job %s: %w", jobID, err)
+	}
+	return id, nil
+}
+
+func (r *JobRepository) RefreshHeartbeat(ctx context.Context, id pgtype.UUID, version int32, staleDelta pgtype.Interval) (bool, error) {
+	rows, err := r.q.RefreshHeartBeat(ctx, db.RefreshHeartBeatParams{
+		ID:                  id,
+		Version:             version,
+		StaleDeltaThreshold: staleDelta,
+	})
+	if err != nil {
+		return false, fmt.Errorf("error in refresh heartbeat for job %s: %w", id, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *JobRepository) CompleteJob(ctx context.Context, id pgtype.UUID, version int32) (bool, error) {
+	rows, err := r.q.UpdateJobCompletion(ctx, db.UpdateJobCompletionParams{ID: id, Version: version})
+	if err != nil {
+		return false, fmt.Errorf("complete job %s: %w", id, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *JobRepository) RecordExecutionFailure(ctx context.Context, id pgtype.UUID, version int32, nextCheckAt pgtype.Timestamptz) (bool, error) {
+	rows, err := r.q.RecordJobExecutionFailure(ctx, db.RecordJobExecutionFailureParams{
+		ID:          id,
+		Version:     version,
+		NextCheckAt: nextCheckAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("record execution failure for job %s: %w", id, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *JobRepository) CompleteAttempt(ctx context.Context, attemptID pgtype.UUID, outcome db.AttemptOutcome, result pgtype.Text) (bool, error) {
+	rows, err := r.q.UpdateJobAttemptExecutionCompletion(ctx, db.UpdateJobAttemptExecutionCompletionParams{
+		ID:      attemptID,
+		Outcome: outcome,
+		Result:  result,
+	})
+	if err != nil {
+		return false, fmt.Errorf("complete attempt %s: %w", attemptID, err)
+	}
+	return rows > 0, nil
 }

@@ -12,8 +12,9 @@ import (
 
 type Querier interface {
 	CancelJob(ctx context.Context, arg CancelJobParams) (Job, error)
+	ClaimJobForExecution(ctx context.Context, arg ClaimJobForExecutionParams) (ClaimJobForExecutionRow, error)
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
-	CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (JobAttempt, error)
+	CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (pgtype.UUID, error)
 	DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error)
 	GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDueJobsRow, error)
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)
@@ -23,10 +24,12 @@ type Querier interface {
 	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
 	MarkQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error)
 	ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) ([]Job, error)
-	RecordHandlerFailure(ctx context.Context, arg RecordHandlerFailureParams) (Job, error)
+	RecordJobExecutionFailure(ctx context.Context, arg RecordJobExecutionFailureParams) (int64, error)
+	RefreshHeartBeat(ctx context.Context, arg RefreshHeartBeatParams) (int64, error)
 	RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job, error)
 	SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) error
-	UpdateJobAttemptOutcome(ctx context.Context, arg UpdateJobAttemptOutcomeParams) (JobAttempt, error)
+	UpdateJobAttemptExecutionCompletion(ctx context.Context, arg UpdateJobAttemptExecutionCompletionParams) (int64, error)
+	UpdateJobCompletion(ctx context.Context, arg UpdateJobCompletionParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

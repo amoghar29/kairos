@@ -174,7 +174,7 @@ type JobAttempt struct {
 	AttemptNumber int32              `json:"attempt_number"`
 	WorkerID      string             `json:"worker_id"`
 	Outcome       AttemptOutcome     `json:"outcome"`
-	Error         pgtype.Text        `json:"error"`
+	Result        pgtype.Text        `json:"result"`
 	StartedAt     pgtype.Timestamptz `json:"started_at"`
 	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
 }

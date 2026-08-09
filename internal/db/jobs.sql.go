@@ -47,6 +47,48 @@ func (q *Queries) CancelJob(ctx context.Context, arg CancelJobParams) (Job, erro
 	return i, err
 }
 
+const claimJobForExecution = `-- name: ClaimJobForExecution :one
+UPDATE jobs
+SET state='running',
+    delivery_count = delivery_count+1,
+    version = version +1 ,
+    next_check_at = now() + $1::interval
+WHERE id = $2 AND state='queued'
+RETURNING id,name,queue,payload,retry_count,max_retries,delivery_count,version
+`
+
+type ClaimJobForExecutionParams struct {
+	StaleDeltaThreshold pgtype.Interval `json:"stale_delta_threshold"`
+	ID                  pgtype.UUID     `json:"id"`
+}
+
+type ClaimJobForExecutionRow struct {
+	ID            pgtype.UUID `json:"id"`
+	Name          string      `json:"name"`
+	Queue         string      `json:"queue"`
+	Payload       []byte      `json:"payload"`
+	RetryCount    int32       `json:"retry_count"`
+	MaxRetries    int32       `json:"max_retries"`
+	DeliveryCount int32       `json:"delivery_count"`
+	Version       int32       `json:"version"`
+}
+
+func (q *Queries) ClaimJobForExecution(ctx context.Context, arg ClaimJobForExecutionParams) (ClaimJobForExecutionRow, error) {
+	row := q.db.QueryRow(ctx, claimJobForExecution, arg.StaleDeltaThreshold, arg.ID)
+	var i ClaimJobForExecutionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Queue,
+		&i.Payload,
+		&i.RetryCount,
+		&i.MaxRetries,
+		&i.DeliveryCount,
+		&i.Version,
+	)
+	return i, err
+}
+
 const createJob = `-- name: CreateJob :one
 INSERT INTO jobs
     (name, queue, payload, priority, max_retries, next_check_at, idempotency_key)
@@ -93,10 +135,9 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 }
 
 const createJobAttempt = `-- name: CreateJobAttempt :one
-INSERT INTO job_attempts
-    (job_id, attempt_number, worker_id)
+INSERT INTO job_attempts (job_id, attempt_number, worker_id)
 VALUES ($1, $2, $3)
-RETURNING id, job_id, attempt_number, worker_id, outcome, error, started_at, finished_at
+RETURNING id
 `
 
 type CreateJobAttemptParams struct {
@@ -105,20 +146,11 @@ type CreateJobAttemptParams struct {
 	WorkerID      string      `json:"worker_id"`
 }
 
-func (q *Queries) CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (JobAttempt, error) {
+func (q *Queries) CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, createJobAttempt, arg.JobID, arg.AttemptNumber, arg.WorkerID)
-	var i JobAttempt
-	err := row.Scan(
-		&i.ID,
-		&i.JobID,
-		&i.AttemptNumber,
-		&i.WorkerID,
-		&i.Outcome,
-		&i.Error,
-		&i.StartedAt,
-		&i.FinishedAt,
-	)
-	return i, err
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const deleteJobById = `-- name: DeleteJobById :one
@@ -203,7 +235,7 @@ func (q *Queries) GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDu
 }
 
 const getJobAttemptsByJobId = `-- name: GetJobAttemptsByJobId :many
-SELECT id, job_id, attempt_number, worker_id, outcome, error, started_at, finished_at FROM job_attempts
+SELECT id, job_id, attempt_number, worker_id, outcome, result, started_at, finished_at FROM job_attempts
 WHERE job_id = $1
 ORDER BY attempt_number ASC
 LIMIT $2 OFFSET $3
@@ -230,7 +262,7 @@ func (q *Queries) GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsB
 			&i.AttemptNumber,
 			&i.WorkerID,
 			&i.Outcome,
-			&i.Error,
+			&i.Result,
 			&i.StartedAt,
 			&i.FinishedAt,
 		); err != nil {
@@ -345,7 +377,7 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 
 const markQueued = `-- name: MarkQueued :many
 UPDATE jobs
-SET state = 'queued', version = version + 1, updated_at = now()
+SET state = 'queued', version = version + 1
 WHERE id = ANY($1::uuid[])
   AND state IN ('pending', 'awaiting_retry')
 RETURNING id
@@ -373,13 +405,12 @@ func (q *Queries) MarkQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.U
 
 const reclaimStaleJobs = `-- name: ReclaimStaleJobs :many
 UPDATE jobs
-SET delivery_count = delivery_count + 1,
-    state = CASE
-        WHEN delivery_count + 1 > $1::int THEN 'dead'::job_state
+SET state = CASE
+        WHEN delivery_count >= $1::int THEN 'dead'::job_state
         ELSE 'awaiting_retry'
     END,
     next_check_at = CASE
-        WHEN delivery_count + 1 > $1::int THEN NULL
+        WHEN delivery_count >= $1::int THEN NULL
         ELSE now()
     END,
     version = version + 1
@@ -422,42 +453,53 @@ func (q *Queries) ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) 
 	return items, nil
 }
 
-const recordHandlerFailure = `-- name: RecordHandlerFailure :one
+const recordJobExecutionFailure = `-- name: RecordJobExecutionFailure :execrows
 UPDATE jobs
-SET retry_count = retry_count + 1,
-    state = CASE WHEN retry_count + 1 >= max_retries THEN 'dead'::job_state ELSE 'awaiting_retry' END,
-    next_check_at = CASE WHEN retry_count + 1 >= max_retries THEN NULL ELSE $3 END,
-    version = version + 1
-WHERE id = $1 AND version = $2
-RETURNING id, name, queue, state, payload, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
+SET retry_count= CASE
+        WHEN  retry_count<max_retries THEN retry_count+1
+        ELSE retry_count END,
+    state=CASE
+        WHEN retry_count>=max_retries THEN 'dead'::job_state
+        ELSE 'awaiting_retry'::job_state END,
+    next_check_at  = CASE
+      WHEN retry_count >= max_retries THEN NULL
+      ELSE $1::timestamptz END,
+    version = version +1
+WHERE id = $2 AND version = $3 AND state = 'running'
 `
 
-type RecordHandlerFailureParams struct {
+type RecordJobExecutionFailureParams struct {
+	NextCheckAt pgtype.Timestamptz `json:"next_check_at"`
 	ID          pgtype.UUID        `json:"id"`
 	Version     int32              `json:"version"`
-	NextCheckAt pgtype.Timestamptz `json:"next_check_at"`
 }
 
-func (q *Queries) RecordHandlerFailure(ctx context.Context, arg RecordHandlerFailureParams) (Job, error) {
-	row := q.db.QueryRow(ctx, recordHandlerFailure, arg.ID, arg.Version, arg.NextCheckAt)
-	var i Job
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Queue,
-		&i.State,
-		&i.Payload,
-		&i.Priority,
-		&i.RetryCount,
-		&i.MaxRetries,
-		&i.DeliveryCount,
-		&i.Version,
-		&i.NextCheckAt,
-		&i.IdempotencyKey,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+func (q *Queries) RecordJobExecutionFailure(ctx context.Context, arg RecordJobExecutionFailureParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordJobExecutionFailure, arg.NextCheckAt, arg.ID, arg.Version)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const refreshHeartBeat = `-- name: RefreshHeartBeat :execrows
+UPDATE jobs
+SET next_check_at = now() + $1::interval
+WHERE id = $2 and version = $3 and state='running'
+`
+
+type RefreshHeartBeatParams struct {
+	StaleDeltaThreshold pgtype.Interval `json:"stale_delta_threshold"`
+	ID                  pgtype.UUID     `json:"id"`
+	Version             int32           `json:"version"`
+}
+
+func (q *Queries) RefreshHeartBeat(ctx context.Context, arg RefreshHeartBeatParams) (int64, error) {
+	result, err := q.db.Exec(ctx, refreshHeartBeat, arg.StaleDeltaThreshold, arg.ID, arg.Version)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const rerunDeadJob = `-- name: RerunDeadJob :one
@@ -502,7 +544,7 @@ func (q *Queries) RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job
 const supersedeOpenAttempt = `-- name: SupersedeOpenAttempt :exec
 UPDATE job_attempts
 SET outcome = 'superseded', finished_at = now()
-WHERE job_id = $1 AND finished_at IS NULL
+WHERE job_id = $1 AND outcome = 'in_progress'
 `
 
 func (q *Queries) SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) error {
@@ -510,31 +552,45 @@ func (q *Queries) SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) e
 	return err
 }
 
-const updateJobAttemptOutcome = `-- name: UpdateJobAttemptOutcome :one
+const updateJobAttemptExecutionCompletion = `-- name: UpdateJobAttemptExecutionCompletion :execrows
 UPDATE job_attempts
-SET outcome = $2, error = $3, finished_at = now()
-WHERE id = $1
-RETURNING id, job_id, attempt_number, worker_id, outcome, error, started_at, finished_at
+SET outcome = $1,
+    result = $2,
+    finished_at=now()
+WHERE id = $3 AND outcome='in_progress'
 `
 
-type UpdateJobAttemptOutcomeParams struct {
-	ID      pgtype.UUID    `json:"id"`
+type UpdateJobAttemptExecutionCompletionParams struct {
 	Outcome AttemptOutcome `json:"outcome"`
-	Error   pgtype.Text    `json:"error"`
+	Result  pgtype.Text    `json:"result"`
+	ID      pgtype.UUID    `json:"id"`
 }
 
-func (q *Queries) UpdateJobAttemptOutcome(ctx context.Context, arg UpdateJobAttemptOutcomeParams) (JobAttempt, error) {
-	row := q.db.QueryRow(ctx, updateJobAttemptOutcome, arg.ID, arg.Outcome, arg.Error)
-	var i JobAttempt
-	err := row.Scan(
-		&i.ID,
-		&i.JobID,
-		&i.AttemptNumber,
-		&i.WorkerID,
-		&i.Outcome,
-		&i.Error,
-		&i.StartedAt,
-		&i.FinishedAt,
-	)
-	return i, err
+func (q *Queries) UpdateJobAttemptExecutionCompletion(ctx context.Context, arg UpdateJobAttemptExecutionCompletionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateJobAttemptExecutionCompletion, arg.Outcome, arg.Result, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateJobCompletion = `-- name: UpdateJobCompletion :execrows
+UPDATE jobs
+SET state='success',
+    version=version+1,
+    next_check_at=NULL
+WHERE id = $1 AND version = $2 AND state='running'
+`
+
+type UpdateJobCompletionParams struct {
+	ID      pgtype.UUID `json:"id"`
+	Version int32       `json:"version"`
+}
+
+func (q *Queries) UpdateJobCompletion(ctx context.Context, arg UpdateJobCompletionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateJobCompletion, arg.ID, arg.Version)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
