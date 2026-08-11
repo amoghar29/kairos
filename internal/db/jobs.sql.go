@@ -48,18 +48,31 @@ func (q *Queries) CancelJob(ctx context.Context, arg CancelJobParams) (Job, erro
 }
 
 const claimJobForExecution = `-- name: ClaimJobForExecution :one
-UPDATE jobs
-SET state='running',
-    delivery_count = delivery_count+1,
-    version = version +1 ,
-    next_check_at = now() + $1::interval
-WHERE id = $2 AND state='queued'
-RETURNING id,name,queue,payload,retry_count,max_retries,delivery_count,version
+WITH claimed AS (
+    UPDATE jobs
+    SET state='running',
+        delivery_count = delivery_count+1,
+        version = version +1 ,
+        next_check_at = now() + $1::interval
+    WHERE jobs.id = $2 AND state='queued'
+    RETURNING jobs.id,name,queue,payload,retry_count,max_retries,delivery_count,version
+),
+attempt AS (
+    INSERT INTO job_attempts (job_id, attempt_number, worker_id)
+    SELECT claimed.id, claimed.delivery_count, $3 FROM claimed
+    RETURNING job_attempts.id, job_attempts.job_id, job_attempts.attempt_number
+)
+SELECT c.id, c.name, c.queue, c.payload, c.retry_count, c.max_retries,
+       c.delivery_count, c.version,
+       a.id AS attempt_id, a.attempt_number
+FROM claimed c
+JOIN attempt a ON a.job_id = c.id
 `
 
 type ClaimJobForExecutionParams struct {
 	StaleDeltaThreshold pgtype.Interval `json:"stale_delta_threshold"`
 	ID                  pgtype.UUID     `json:"id"`
+	WorkerID            string          `json:"worker_id"`
 }
 
 type ClaimJobForExecutionRow struct {
@@ -71,10 +84,12 @@ type ClaimJobForExecutionRow struct {
 	MaxRetries    int32       `json:"max_retries"`
 	DeliveryCount int32       `json:"delivery_count"`
 	Version       int32       `json:"version"`
+	AttemptID     pgtype.UUID `json:"attempt_id"`
+	AttemptNumber int32       `json:"attempt_number"`
 }
 
 func (q *Queries) ClaimJobForExecution(ctx context.Context, arg ClaimJobForExecutionParams) (ClaimJobForExecutionRow, error) {
-	row := q.db.QueryRow(ctx, claimJobForExecution, arg.StaleDeltaThreshold, arg.ID)
+	row := q.db.QueryRow(ctx, claimJobForExecution, arg.StaleDeltaThreshold, arg.ID, arg.WorkerID)
 	var i ClaimJobForExecutionRow
 	err := row.Scan(
 		&i.ID,
@@ -85,6 +100,8 @@ func (q *Queries) ClaimJobForExecution(ctx context.Context, arg ClaimJobForExecu
 		&i.MaxRetries,
 		&i.DeliveryCount,
 		&i.Version,
+		&i.AttemptID,
+		&i.AttemptNumber,
 	)
 	return i, err
 }

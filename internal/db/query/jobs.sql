@@ -81,13 +81,25 @@ WHERE id = ANY(@ids::uuid[])
 RETURNING id;
 
 -- name: ClaimJobForExecution :one
-UPDATE jobs
-SET state='running',
-    delivery_count = delivery_count+1,
-    version = version +1 ,
-    next_check_at = now() + @stale_delta_threshold::interval
-WHERE id = @id AND state='queued'
-RETURNING id,name,queue,payload,retry_count,max_retries,delivery_count,version;
+WITH claimed AS (
+    UPDATE jobs
+    SET state='running',
+        delivery_count = delivery_count+1,
+        version = version +1 ,
+        next_check_at = now() + @stale_delta_threshold::interval
+    WHERE jobs.id = @id AND state='queued'
+    RETURNING jobs.id,name,queue,payload,retry_count,max_retries,delivery_count,version
+),
+attempt AS (
+    INSERT INTO job_attempts (job_id, attempt_number, worker_id)
+    SELECT claimed.id, claimed.delivery_count, @worker_id FROM claimed
+    RETURNING job_attempts.id, job_attempts.job_id, job_attempts.attempt_number
+)
+SELECT c.id, c.name, c.queue, c.payload, c.retry_count, c.max_retries,
+       c.delivery_count, c.version,
+       a.id AS attempt_id, a.attempt_number
+FROM claimed c
+JOIN attempt a ON a.job_id = c.id;
 
 -- name: RefreshHeartBeat :execrows
 UPDATE jobs

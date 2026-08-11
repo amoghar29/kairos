@@ -157,8 +157,12 @@ func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID)
 	return queued, nil
 }
 
-func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
-	claimed, err := r.q.ClaimJobForExecution(ctx, db.ClaimJobForExecutionParams{ID: id, StaleDeltaThreshold: staleDelta})
+func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, workerID string, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
+	claimed, err := r.q.ClaimJobForExecution(ctx, db.ClaimJobForExecutionParams{
+		ID:                  id,
+		WorkerID:            workerID,
+		StaleDeltaThreshold: staleDelta,
+	})
 	if err == nil {
 		return claimed, nil
 	}
@@ -172,17 +176,6 @@ func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, s
 	return db.ClaimJobForExecutionRow{}, ErrConflict
 }
 
-func (r *JobRepository) CreateAttempt(ctx context.Context, jobID pgtype.UUID, attemptNumber int32, workerID string) (pgtype.UUID, error) {
-	id, err := r.q.CreateJobAttempt(ctx, db.CreateJobAttemptParams{
-		JobID:         jobID,
-		AttemptNumber: attemptNumber,
-		WorkerID:      workerID,
-	})
-	if err != nil {
-		return pgtype.UUID{}, fmt.Errorf("create attempt for job %s: %w", jobID, err)
-	}
-	return id, nil
-}
 
 func (r *JobRepository) RefreshHeartbeat(ctx context.Context, id pgtype.UUID, version int32, staleDelta pgtype.Interval) (bool, error) {
 	rows, err := r.q.RefreshHeartBeat(ctx, db.RefreshHeartBeatParams{
