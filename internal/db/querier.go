@@ -16,10 +16,12 @@ type Querier interface {
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (pgtype.UUID, error)
 	DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error)
+	GetAttemptLogs(ctx context.Context, arg GetAttemptLogsParams) ([]GetAttemptLogsRow, error)
 	GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDueJobsRow, error)
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)
 	GetJobById(ctx context.Context, id pgtype.UUID) (Job, error)
 	GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Job, error)
+	InsertJobLogs(ctx context.Context, arg InsertJobLogsParams) (int64, error)
 	// Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
 	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
 	MarkQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error)

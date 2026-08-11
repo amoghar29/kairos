@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/jackc/pgx/v5"
@@ -225,4 +226,65 @@ func (r *JobRepository) CompleteAttempt(ctx context.Context, attemptID pgtype.UU
 		return false, fmt.Errorf("complete attempt %s: %w", attemptID, err)
 	}
 	return rows > 0, nil
+}
+
+type LogLine struct {
+	AttemptID pgtype.UUID
+	Seq       int32
+	Level     db.LogLevel
+	Line      string
+	CreatedAt pgtype.Timestamptz
+}
+
+const defaultLogLevel = db.LogLevelInfo
+
+func (r *JobRepository) CreateJobLogs(ctx context.Context, lines []LogLine) (int64, error) {
+	if len(lines) == 0 {
+		return 0, nil
+	}
+
+	arg := db.InsertJobLogsParams{
+		AttemptIds: make([]pgtype.UUID, len(lines)),
+		Seqs:       make([]int32, len(lines)),
+		Levels:     make([]db.LogLevel, len(lines)),
+		Lines:      make([]string, len(lines)),
+		CreatedAts: make([]pgtype.Timestamptz, len(lines)),
+	}
+	for i, l := range lines {
+		level := l.Level
+		if level == "" {
+			level = defaultLogLevel
+		}
+		arg.AttemptIds[i] = l.AttemptID
+		arg.Seqs[i] = l.Seq
+		arg.Levels[i] = level
+		arg.Lines[i] = l.Line
+		arg.CreatedAts[i] = l.CreatedAt
+	}
+
+	inserted, err := r.q.InsertJobLogs(ctx, arg)
+	if err != nil {
+		return 0, fmt.Errorf("insert %d job logs: %w", len(lines), err)
+	}
+	return inserted, nil
+}
+
+const logQueryPadding = 10 * time.Second
+
+func (r *JobRepository) GetJobAttemptLogs(ctx context.Context, attemptID pgtype.UUID, fromTS, toTS pgtype.Timestamptz, afterSeq, limit int32) ([]db.GetAttemptLogsRow, error) {
+	if !fromTS.Valid || !toTS.Valid {
+		return nil, fmt.Errorf("get logs for attempt %s: from/to timestamps are required", attemptID)
+	}
+
+	logs, err := r.q.GetAttemptLogs(ctx, db.GetAttemptLogsParams{
+		AttemptID: attemptID,
+		FromTs:    pgtype.Timestamptz{Time: fromTS.Time.Add(-logQueryPadding), Valid: true},
+		ToTs:      pgtype.Timestamptz{Time: toTS.Time.Add(logQueryPadding), Valid: true},
+		AfterSeq:  afterSeq,
+		PageLimit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get logs for attempt %s: %w", attemptID, err)
+	}
+	return logs, nil
 }

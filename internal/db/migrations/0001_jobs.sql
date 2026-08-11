@@ -28,6 +28,16 @@ CREATE TYPE attempt_outcome AS ENUM (
     'superseded'
 );
 
+-- Declared in severity order: Postgres compares enums by declaration position,
+-- so this is what makes `level >= 'warning'` a valid filter.
+CREATE TYPE log_level AS ENUM (
+    'debug',
+    'info',
+    'warning',
+    'error',
+    'fatal'
+);
+
 -- The DEFAULTs below are a safety net for manual/psql inserts. The API always
 -- names these columns in its INSERT, so the application supplies the real
 -- defaults (see defaultPriority / defaultMaxRetries in internal/api/dto.go).
@@ -84,10 +94,23 @@ CREATE TABLE job_attempts (
     UNIQUE (job_id, attempt_number)
 );
 
+CREATE TABLE job_logs (
+    attempt_id        uuid            NOT NULL REFERENCES job_attempts(id) ON DELETE CASCADE,
+    created_at        timestamptz     NOT NULL DEFAULT now(),
+    seq               int             NOT NULL,
+    level             log_level       NOT NULL DEFAULT 'info',
+    line              text            NOT NULL,
+
+    PRIMARY KEY (attempt_id, seq, created_at)
+) PARTITION BY RANGE (created_at);
+
+CREATE TABLE job_logs_default PARTITION OF job_logs DEFAULT;
 
 -- +goose Down
+DROP TABLE IF EXISTS job_logs;
 DROP TABLE IF EXISTS job_attempts;
 DROP TABLE IF EXISTS jobs;
+DROP TYPE IF EXISTS log_level;
 DROP TYPE IF EXISTS attempt_outcome;
 DROP TYPE IF EXISTS job_state;
 DROP FUNCTION IF EXISTS set_updated_at();

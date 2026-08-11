@@ -151,6 +151,73 @@ func AllJobStateValues() []JobState {
 	}
 }
 
+type LogLevel string
+
+const (
+	LogLevelDebug   LogLevel = "debug"
+	LogLevelInfo    LogLevel = "info"
+	LogLevelWarning LogLevel = "warning"
+	LogLevelError   LogLevel = "error"
+	LogLevelFatal   LogLevel = "fatal"
+)
+
+func (e *LogLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = LogLevel(s)
+	case string:
+		*e = LogLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for LogLevel: %T", src)
+	}
+	return nil
+}
+
+type NullLogLevel struct {
+	LogLevel LogLevel `json:"log_level"`
+	Valid    bool     `json:"valid"` // Valid is true if LogLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullLogLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.LogLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.LogLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullLogLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.LogLevel), nil
+}
+
+func (e LogLevel) Valid() bool {
+	switch e {
+	case LogLevelDebug,
+		LogLevelInfo,
+		LogLevelWarning,
+		LogLevelError,
+		LogLevelFatal:
+		return true
+	}
+	return false
+}
+
+func AllLogLevelValues() []LogLevel {
+	return []LogLevel{
+		LogLevelDebug,
+		LogLevelInfo,
+		LogLevelWarning,
+		LogLevelError,
+		LogLevelFatal,
+	}
+}
+
 type Job struct {
 	ID             pgtype.UUID        `json:"id"`
 	Name           string             `json:"name"`

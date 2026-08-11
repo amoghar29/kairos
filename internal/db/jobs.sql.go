@@ -179,6 +179,63 @@ func (q *Queries) DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error
 	return i, err
 }
 
+const getAttemptLogs = `-- name: GetAttemptLogs :many
+SELECT seq, level, line, created_at
+FROM job_logs
+WHERE attempt_id = $1
+  AND created_at >= $2
+  AND created_at <  $3
+  AND seq > $4
+ORDER BY seq ASC
+LIMIT $5
+`
+
+type GetAttemptLogsParams struct {
+	AttemptID pgtype.UUID        `json:"attempt_id"`
+	FromTs    pgtype.Timestamptz `json:"from_ts"`
+	ToTs      pgtype.Timestamptz `json:"to_ts"`
+	AfterSeq  int32              `json:"after_seq"`
+	PageLimit int32              `json:"page_limit"`
+}
+
+type GetAttemptLogsRow struct {
+	Seq       int32              `json:"seq"`
+	Level     LogLevel           `json:"level"`
+	Line      string             `json:"line"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetAttemptLogs(ctx context.Context, arg GetAttemptLogsParams) ([]GetAttemptLogsRow, error) {
+	rows, err := q.db.Query(ctx, getAttemptLogs,
+		arg.AttemptID,
+		arg.FromTs,
+		arg.ToTs,
+		arg.AfterSeq,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAttemptLogsRow
+	for rows.Next() {
+		var i GetAttemptLogsRow
+		if err := rows.Scan(
+			&i.Seq,
+			&i.Level,
+			&i.Line,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDueJobs = `-- name: GetDueJobs :many
 WITH queued_counts AS (
     SELECT queue, count(*) AS queued_count
@@ -326,6 +383,39 @@ func (q *Queries) GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgt
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const insertJobLogs = `-- name: InsertJobLogs :execrows
+INSERT INTO job_logs (attempt_id, seq, level, line, created_at)
+SELECT
+    unnest($1::uuid[]),
+    unnest($2::int[]),
+    unnest($3::log_level[]),
+    unnest($4::text[]),
+    unnest($5::timestamptz[])
+ON CONFLICT DO NOTHING
+`
+
+type InsertJobLogsParams struct {
+	AttemptIds []pgtype.UUID        `json:"attempt_ids"`
+	Seqs       []int32              `json:"seqs"`
+	Levels     []LogLevel           `json:"levels"`
+	Lines      []string             `json:"lines"`
+	CreatedAts []pgtype.Timestamptz `json:"created_ats"`
+}
+
+func (q *Queries) InsertJobLogs(ctx context.Context, arg InsertJobLogsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertJobLogs,
+		arg.AttemptIds,
+		arg.Seqs,
+		arg.Levels,
+		arg.Lines,
+		arg.CreatedAts,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const listJobs = `-- name: ListJobs :many

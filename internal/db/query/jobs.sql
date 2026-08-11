@@ -140,3 +140,24 @@ WHERE id = @id AND outcome='in_progress';
 UPDATE job_attempts
 SET outcome = 'superseded', finished_at = now()
 WHERE job_id = @job_id AND outcome = 'in_progress';
+
+
+-- name: InsertJobLogs :execrows
+INSERT INTO job_logs (attempt_id, seq, level, line, created_at)
+SELECT
+    unnest(@attempt_ids::uuid[]),
+    unnest(@seqs::int[]),
+    unnest(@levels::log_level[]),
+    unnest(@lines::text[]),
+    unnest(@created_ats::timestamptz[])
+ON CONFLICT DO NOTHING;
+
+-- name: GetAttemptLogs :many
+SELECT seq, level, line, created_at
+FROM job_logs
+WHERE attempt_id = @attempt_id
+  AND created_at >= @from_ts
+  AND created_at <  @to_ts
+  AND seq > @after_seq
+ORDER BY seq ASC
+LIMIT @page_limit;

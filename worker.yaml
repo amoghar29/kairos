@@ -1,0 +1,7 @@
+database:
+  partitioning:
+    interval: monthly        # weekly | monthly | quarterly | half_yearly | yearly
+    create_ahead: 6          # intervals kept provisioned ahead of now
+
+  retention:
+    days: 0                  # 0 = retain forever
