@@ -32,8 +32,6 @@ func NewJobConsumer(jobRepository *job.JobRepository, rdb *redis.Client, cfg con
 	}
 }
 
-// Rows arrive ordered by queue, so each contiguous run is one queue's batch.
-// A queue whose push fails is skipped, not returned: its jobs stay unclaimed and are refetched next poll.
 func (jc *JobConsumer) pushJobsToRedis(ctx context.Context, jobs []db.GetDueJobsRow) ([]pgtype.UUID, error) {
 	var pushed []pgtype.UUID
 	var errs []error
@@ -67,12 +65,23 @@ func (jc *JobConsumer) pushJobsToRedis(ctx context.Context, jobs []db.GetDueJobs
 	return pushed, errors.Join(errs...)
 }
 
+func (jc *JobConsumer) dispatchLease() pgtype.Interval {
+	return pgtype.Interval{
+		Microseconds: int64(jc.cfg.DispatchLease) * int64(time.Second/time.Microsecond),
+		Valid:        true,
+	}
+}
+
 func (jc *JobConsumer) markJobAsQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
-	return jc.jobRepository.MarksJobAsQueued(ctx, ids)
+	return jc.jobRepository.MarksJobAsQueued(ctx, ids, jc.dispatchLease())
 }
 
 func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 	if err := jc.reclaimStale(ctx); err != nil {
+		return 0, err
+	}
+
+	if err := jc.expireDispatchLeases(ctx); err != nil {
 		return 0, err
 	}
 
@@ -85,10 +94,6 @@ func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	//  push to redis first and then update postgres
-	// since we cannot have transaction support when operating btw different services
-	// So we first push to redis and then update db, even if the system crashes after push and before update
-	// it is fine, since we gurantee Atleast once execution .
 	pushed, err := jc.pushJobsToRedis(ctx, jobs)
 	if len(pushed) == 0 {
 		if err != nil {
@@ -97,7 +102,6 @@ func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	if err != nil {
-		// Some queues made it. Mark those and let the rest come back next poll.
 		jc.logger.Warn("pushed jobs but some queues failed",
 			slog.Int("pushed", len(pushed)),
 			slog.Int("claimed", len(jobs)),
@@ -107,8 +111,6 @@ func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 
 	queued, err := jc.markJobAsQueued(ctx, pushed)
 	if err != nil {
-		// The ids are in redis but still look unclaimed in postgres, so the next poll refetches
-		// and repushes them. At-least-once still holds; the count says how many may duplicate.
 		return 0, fmt.Errorf("mark %d pushed jobs as queued: %w", len(pushed), err)
 	}
 	if len(queued) != len(pushed) {
@@ -131,17 +133,36 @@ func (jc *JobConsumer) reclaimStale(ctx context.Context) error {
 		return fmt.Errorf("reclaim stale jobs: %w", err)
 	}
 
-	for _, reclaimedJob := range reclaimed {
-		// The reclaim already committed; a stuck-open attempt row is cosmetic, so log and keep going.
-		if err := jc.jobRepository.SupersedeOpenAttempt(ctx, reclaimedJob.ID); err != nil {
-			jc.logger.Error("supersede open attempt",
-				slog.String("job_id", reclaimedJob.ID.String()),
-				slog.Any("error", err),
-			)
-		}
+	if len(reclaimed) == 0 {
+		return nil
+	}
+
+	ids := make([]pgtype.UUID, len(reclaimed))
+	for i, reclaimedJob := range reclaimed {
+		ids[i] = reclaimedJob.ID
+	}
+
+	if err := jc.jobRepository.SupersedeOpenAttempts(ctx, ids); err != nil {
+		jc.logger.Error("supersede open attempts", slog.Any("error", err))
 	}
 
 	jc.logger.Info("reclaimed stale jobs", slog.Int("count", len(reclaimed)))
+
+	return nil
+}
+
+const lostDispatchResult = "dispatched to redis but no worker claimed it before the dispatch lease expired"
+
+func (jc *JobConsumer) expireDispatchLeases(ctx context.Context) error {
+	expired, err := jc.jobRepository.ExpireDispatchLeases(ctx, lostDispatchResult)
+	if err != nil {
+		return fmt.Errorf("expire dispatch leases: %w", err)
+	}
+	if len(expired) == 0 {
+		return nil
+	}
+
+	jc.logger.Info("requeued jobs with expired dispatch lease", slog.Int("count", len(expired)))
 
 	return nil
 }

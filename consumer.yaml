@@ -1,10 +1,10 @@
-poll_interval: 5
-stale_threshold: 60
-heartbeat_interval: 2
+poll_interval: 5 #in seconds
+stale_threshold: 60 #in seconds
+heartbeat_interval: 2 #in seconds
 queue_limit: 10
 max_delivery_count: 3
 aging_rate: -2.1
-
+dispatch_lease: 60 # in seconds; how long a queued job may go unclaimed before it is requeued
 queues:
   - name: testing1
   - name: high_priority

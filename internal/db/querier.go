@@ -16,6 +16,8 @@ type Querier interface {
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (pgtype.UUID, error)
 	DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error)
+	// A queued job whose lease ran out was never claimed by any worker, so it goes back to pending.
+	ExpireDispatchLeases(ctx context.Context, result string) ([]pgtype.UUID, error)
 	GetAttemptLogs(ctx context.Context, arg GetAttemptLogsParams) ([]GetAttemptLogsRow, error)
 	GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDueJobsRow, error)
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)
@@ -24,12 +26,12 @@ type Querier interface {
 	InsertJobLogs(ctx context.Context, arg InsertJobLogsParams) (int64, error)
 	// Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
 	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
-	MarkQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error)
+	MarkQueued(ctx context.Context, arg MarkQueuedParams) ([]pgtype.UUID, error)
 	ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) ([]Job, error)
 	RecordJobExecutionFailure(ctx context.Context, arg RecordJobExecutionFailureParams) (int64, error)
 	RefreshHeartBeat(ctx context.Context, arg RefreshHeartBeatParams) (int64, error)
 	RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job, error)
-	SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) error
+	SupersedeOpenAttempts(ctx context.Context, jobIds []pgtype.UUID) error
 	UpdateJobAttemptExecutionCompletion(ctx context.Context, arg UpdateJobAttemptExecutionCompletionParams) (int64, error)
 	UpdateJobCompletion(ctx context.Context, arg UpdateJobCompletionParams) (int64, error)
 }

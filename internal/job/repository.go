@@ -119,9 +119,12 @@ func (r *JobRepository) ReclaimStale(ctx context.Context, maxDeliveryCount int32
 	return jobs, nil
 }
 
-func (r *JobRepository) SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) error {
-	if err := r.q.SupersedeOpenAttempt(ctx, jobID); err != nil {
-		return fmt.Errorf("error supersede open attempt for job %s: %w", jobID, err)
+func (r *JobRepository) SupersedeOpenAttempts(ctx context.Context, jobIDs []pgtype.UUID) error {
+	if len(jobIDs) == 0 {
+		return nil
+	}
+	if err := r.q.SupersedeOpenAttempts(ctx, jobIDs); err != nil {
+		return fmt.Errorf("error supersede open attempts for %d jobs: %w", len(jobIDs), err)
 	}
 	return nil
 }
@@ -149,18 +152,28 @@ func (r *JobRepository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue 
 	return jobs, nil
 }
 
-func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
-	queued, err := r.q.MarkQueued(ctx, ids)
+func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID, dispatchLease pgtype.Interval) ([]pgtype.UUID, error) {
+	queued, err := r.q.MarkQueued(ctx, db.MarkQueuedParams{Ids: ids, DispatchLease: dispatchLease})
 	if err != nil {
 		return nil, fmt.Errorf("mark jobs as queued: %w", err)
 	}
 	return queued, nil
 }
 
+func (r *JobRepository) ExpireDispatchLeases(ctx context.Context, result string) ([]pgtype.UUID, error) {
+	expired, err := r.q.ExpireDispatchLeases(ctx, result)
+	if err != nil {
+		return nil, fmt.Errorf("expire dispatch leases: %w", err)
+	}
+	return expired, nil
+}
+
 func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, workerID string, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
+	// worker_id is nullable only so a lost dispatch can record an attempt with no worker.
+	// A claim always has one, so callers keep passing a plain string.
 	claimed, err := r.q.ClaimJobForExecution(ctx, db.ClaimJobForExecutionParams{
 		ID:                  id,
-		WorkerID:            workerID,
+		WorkerID:            pgtype.Text{String: workerID, Valid: true},
 		StaleDeltaThreshold: staleDelta,
 	})
 	if err == nil {

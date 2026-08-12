@@ -58,13 +58,13 @@ WITH claimed AS (
     RETURNING jobs.id,name,queue,payload,retry_count,max_retries,delivery_count,version
 ),
 attempt AS (
-    INSERT INTO job_attempts (job_id, attempt_number, worker_id)
-    SELECT claimed.id, claimed.delivery_count, $3 FROM claimed
-    RETURNING job_attempts.id, job_attempts.job_id, job_attempts.attempt_number
+    INSERT INTO job_attempts (job_id, worker_id)
+    SELECT claimed.id, $3 FROM claimed
+    RETURNING job_attempts.id, job_attempts.job_id
 )
 SELECT c.id, c.name, c.queue, c.payload, c.retry_count, c.max_retries,
        c.delivery_count, c.version,
-       a.id AS attempt_id, a.attempt_number
+       a.id AS attempt_id
 FROM claimed c
 JOIN attempt a ON a.job_id = c.id
 `
@@ -72,7 +72,7 @@ JOIN attempt a ON a.job_id = c.id
 type ClaimJobForExecutionParams struct {
 	StaleDeltaThreshold pgtype.Interval `json:"stale_delta_threshold"`
 	ID                  pgtype.UUID     `json:"id"`
-	WorkerID            string          `json:"worker_id"`
+	WorkerID            pgtype.Text     `json:"worker_id"`
 }
 
 type ClaimJobForExecutionRow struct {
@@ -85,7 +85,6 @@ type ClaimJobForExecutionRow struct {
 	DeliveryCount int32       `json:"delivery_count"`
 	Version       int32       `json:"version"`
 	AttemptID     pgtype.UUID `json:"attempt_id"`
-	AttemptNumber int32       `json:"attempt_number"`
 }
 
 func (q *Queries) ClaimJobForExecution(ctx context.Context, arg ClaimJobForExecutionParams) (ClaimJobForExecutionRow, error) {
@@ -101,7 +100,6 @@ func (q *Queries) ClaimJobForExecution(ctx context.Context, arg ClaimJobForExecu
 		&i.DeliveryCount,
 		&i.Version,
 		&i.AttemptID,
-		&i.AttemptNumber,
 	)
 	return i, err
 }
@@ -152,19 +150,18 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 }
 
 const createJobAttempt = `-- name: CreateJobAttempt :one
-INSERT INTO job_attempts (job_id, attempt_number, worker_id)
-VALUES ($1, $2, $3)
+INSERT INTO job_attempts (job_id, worker_id)
+VALUES ($1, $2)
 RETURNING id
 `
 
 type CreateJobAttemptParams struct {
-	JobID         pgtype.UUID `json:"job_id"`
-	AttemptNumber int32       `json:"attempt_number"`
-	WorkerID      string      `json:"worker_id"`
+	JobID    pgtype.UUID `json:"job_id"`
+	WorkerID pgtype.Text `json:"worker_id"`
 }
 
 func (q *Queries) CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, createJobAttempt, arg.JobID, arg.AttemptNumber, arg.WorkerID)
+	row := q.db.QueryRow(ctx, createJobAttempt, arg.JobID, arg.WorkerID)
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -194,6 +191,46 @@ func (q *Queries) DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const expireDispatchLeases = `-- name: ExpireDispatchLeases :many
+WITH expired AS (
+    UPDATE jobs
+    SET state = 'pending',
+        delivery_count = jobs.delivery_count + 1,
+        next_check_at = now(),
+        version = jobs.version + 1
+    WHERE jobs.state = 'queued'
+      AND jobs.next_check_at <= now()
+    RETURNING jobs.id
+),
+attempt AS (
+    INSERT INTO job_attempts (job_id, worker_id, outcome, result, finished_at)
+    SELECT expired.id, NULL, 'lost', $1::text, now() FROM expired
+    RETURNING job_attempts.job_id
+)
+SELECT expired.id FROM expired JOIN attempt ON attempt.job_id = expired.id
+`
+
+// A queued job whose lease ran out was never claimed by any worker, so it goes back to pending.
+func (q *Queries) ExpireDispatchLeases(ctx context.Context, result string) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, expireDispatchLeases, result)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAttemptLogs = `-- name: GetAttemptLogs :many
@@ -309,9 +346,9 @@ func (q *Queries) GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDu
 }
 
 const getJobAttemptsByJobId = `-- name: GetJobAttemptsByJobId :many
-SELECT id, job_id, attempt_number, worker_id, outcome, result, started_at, finished_at FROM job_attempts
+SELECT id, job_id, worker_id, outcome, result, started_at, finished_at FROM job_attempts
 WHERE job_id = $1
-ORDER BY attempt_number ASC
+ORDER BY started_at ASC, id ASC
 LIMIT $2 OFFSET $3
 `
 
@@ -333,7 +370,6 @@ func (q *Queries) GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsB
 		if err := rows.Scan(
 			&i.ID,
 			&i.JobID,
-			&i.AttemptNumber,
 			&i.WorkerID,
 			&i.Outcome,
 			&i.Result,
@@ -484,14 +520,21 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 
 const markQueued = `-- name: MarkQueued :many
 UPDATE jobs
-SET state = 'queued', version = version + 1
-WHERE id = ANY($1::uuid[])
+SET state = 'queued',
+    next_check_at = now() + $1::interval,
+    version = version + 1
+WHERE id = ANY($2::uuid[])
   AND state IN ('pending', 'awaiting_retry')
 RETURNING id
 `
 
-func (q *Queries) MarkQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, markQueued, ids)
+type MarkQueuedParams struct {
+	DispatchLease pgtype.Interval `json:"dispatch_lease"`
+	Ids           []pgtype.UUID   `json:"ids"`
+}
+
+func (q *Queries) MarkQueued(ctx context.Context, arg MarkQueuedParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, markQueued, arg.DispatchLease, arg.Ids)
 	if err != nil {
 		return nil, err
 	}
@@ -613,6 +656,7 @@ const rerunDeadJob = `-- name: RerunDeadJob :one
 UPDATE jobs
 SET state = 'pending',
     retry_count = 0,
+    delivery_count = 0,
     next_check_at = now(),
     version = version + 1
 WHERE id = $1
@@ -648,14 +692,14 @@ func (q *Queries) RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job
 	return i, err
 }
 
-const supersedeOpenAttempt = `-- name: SupersedeOpenAttempt :exec
+const supersedeOpenAttempts = `-- name: SupersedeOpenAttempts :exec
 UPDATE job_attempts
 SET outcome = 'superseded', finished_at = now()
-WHERE job_id = $1 AND outcome = 'in_progress'
+WHERE job_id = ANY($1::uuid[]) AND outcome = 'in_progress'
 `
 
-func (q *Queries) SupersedeOpenAttempt(ctx context.Context, jobID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, supersedeOpenAttempt, jobID)
+func (q *Queries) SupersedeOpenAttempts(ctx context.Context, jobIds []pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, supersedeOpenAttempts, jobIds)
 	return err
 }
 

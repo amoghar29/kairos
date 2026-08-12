@@ -52,6 +52,7 @@ RETURNING *;
 UPDATE jobs
 SET state = 'pending',
     retry_count = 0,
+    delivery_count = 0,
     next_check_at = now(),
     version = version + 1
 WHERE id = @id
@@ -75,10 +76,31 @@ RETURNING *;
 
 -- name: MarkQueued :many
 UPDATE jobs
-SET state = 'queued', version = version + 1
+SET state = 'queued',
+    next_check_at = now() + @dispatch_lease::interval,
+    version = version + 1
 WHERE id = ANY(@ids::uuid[])
   AND state IN ('pending', 'awaiting_retry')
 RETURNING id;
+
+-- A queued job whose lease ran out was never claimed by any worker, so it goes back to pending.
+-- name: ExpireDispatchLeases :many
+WITH expired AS (
+    UPDATE jobs
+    SET state = 'pending',
+        delivery_count = jobs.delivery_count + 1,
+        next_check_at = now(),
+        version = jobs.version + 1
+    WHERE jobs.state = 'queued'
+      AND jobs.next_check_at <= now()
+    RETURNING jobs.id
+),
+attempt AS (
+    INSERT INTO job_attempts (job_id, worker_id, outcome, result, finished_at)
+    SELECT expired.id, NULL, 'lost', @result::text, now() FROM expired
+    RETURNING job_attempts.job_id
+)
+SELECT expired.id FROM expired JOIN attempt ON attempt.job_id = expired.id;
 
 -- name: ClaimJobForExecution :one
 WITH claimed AS (
@@ -91,13 +113,13 @@ WITH claimed AS (
     RETURNING jobs.id,name,queue,payload,retry_count,max_retries,delivery_count,version
 ),
 attempt AS (
-    INSERT INTO job_attempts (job_id, attempt_number, worker_id)
-    SELECT claimed.id, claimed.delivery_count, @worker_id FROM claimed
-    RETURNING job_attempts.id, job_attempts.job_id, job_attempts.attempt_number
+    INSERT INTO job_attempts (job_id, worker_id)
+    SELECT claimed.id, @worker_id FROM claimed
+    RETURNING job_attempts.id, job_attempts.job_id
 )
 SELECT c.id, c.name, c.queue, c.payload, c.retry_count, c.max_retries,
        c.delivery_count, c.version,
-       a.id AS attempt_id, a.attempt_number
+       a.id AS attempt_id
 FROM claimed c
 JOIN attempt a ON a.job_id = c.id;
 
@@ -131,14 +153,14 @@ WHERE id = @id AND version = @version AND state = 'running';
 DELETE FROM jobs WHERE id = @id RETURNING *;
 
 -- name: CreateJobAttempt :one
-INSERT INTO job_attempts (job_id, attempt_number, worker_id)
-VALUES (@job_id, @attempt_number, @worker_id)
+INSERT INTO job_attempts (job_id, worker_id)
+VALUES (@job_id, @worker_id)
 RETURNING id;
 
 -- name: GetJobAttemptsByJobId :many
 SELECT * FROM job_attempts
 WHERE job_id = $1
-ORDER BY attempt_number ASC
+ORDER BY started_at ASC, id ASC
 LIMIT $2 OFFSET $3;
 
 -- name: UpdateJobAttemptExecutionCompletion :execrows
@@ -148,10 +170,10 @@ SET outcome = @outcome,
     finished_at=now()
 WHERE id = @id AND outcome='in_progress';
 
--- name: SupersedeOpenAttempt :exec
+-- name: SupersedeOpenAttempts :exec
 UPDATE job_attempts
 SET outcome = 'superseded', finished_at = now()
-WHERE job_id = @job_id AND outcome = 'in_progress';
+WHERE job_id = ANY(@job_ids::uuid[]) AND outcome = 'in_progress';
 
 
 -- name: InsertJobLogs :execrows

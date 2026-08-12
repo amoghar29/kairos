@@ -25,11 +25,10 @@ CREATE TYPE attempt_outcome AS ENUM (
     'success',
     'failed',
     'cancelled',
-    'superseded'
+    'superseded',
+    'lost'
 );
 
--- Declared in severity order: Postgres compares enums by declaration position,
--- so this is what makes `level >= 'warning'` a valid filter.
 CREATE TYPE log_level AS ENUM (
     'debug',
     'info',
@@ -38,12 +37,6 @@ CREATE TYPE log_level AS ENUM (
     'fatal'
 );
 
--- The DEFAULTs below are a safety net for manual/psql inserts. The API always
--- names these columns in its INSERT, so the application supplies the real
--- defaults (see defaultPriority / defaultMaxRetries in internal/api/dto.go).
--- The priority/max_retries CHECK bounds mirror the constants in that same file.
--- The API copy exists to return a 422 with a readable field error; these exist
--- because workers and psql write here without passing through the API.
 CREATE TABLE jobs (
     id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     name                text        NOT NULL,
@@ -84,14 +77,11 @@ CREATE TRIGGER jobs_set_updated_at
 CREATE TABLE job_attempts (
     id                uuid            PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id            uuid            NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    attempt_number    int             NOT NULL,
-    worker_id         text            NOT NULL,
+    worker_id         text,
     outcome           attempt_outcome NOT NULL DEFAULT 'in_progress',
-    result             text           DEFAULT NULL  ,
+    result            text           DEFAULT NULL  ,
     started_at        timestamptz     NOT NULL DEFAULT now(),
-    finished_at       timestamptz,
-
-    UNIQUE (job_id, attempt_number)
+    finished_at       timestamptz
 );
 
 CREATE TABLE job_logs (

@@ -144,26 +144,24 @@ func NewJobResponse(j db.Job) JobResponse {
 }
 
 type JobAttemptResponse struct {
-	ID            string     `json:"id"`
-	JobID         string     `json:"job_id"`
-	AttemptNumber int32      `json:"attempt_number"`
-	WorkerID      string     `json:"worker_id"`
-	Outcome       string     `json:"outcome"`
-	Result        *string    `json:"result"`
-	StartedAt     time.Time  `json:"started_at"`
-	FinishedAt    *time.Time `json:"finished_at"`
+	ID         string     `json:"id"`
+	JobID      string     `json:"job_id"`
+	WorkerID   *string    `json:"worker_id"`
+	Outcome    string     `json:"outcome"`
+	Result     *string    `json:"result"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
 }
 
 func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
 	return JobAttemptResponse{
-		ID:            a.ID.String(),
-		JobID:         a.JobID.String(),
-		AttemptNumber: a.AttemptNumber,
-		WorkerID:      a.WorkerID,
-		Outcome:       string(a.Outcome),
-		Result:        stringPtr(a.Result),
-		StartedAt:     a.StartedAt.Time,
-		FinishedAt:    timePtr(a.FinishedAt),
+		ID:         a.ID.String(),
+		JobID:      a.JobID.String(),
+		WorkerID:   stringPtr(a.WorkerID),
+		Outcome:    string(a.Outcome),
+		Result:     stringPtr(a.Result),
+		StartedAt:  a.StartedAt.Time,
+		FinishedAt: timePtr(a.FinishedAt),
 	}
 }
 

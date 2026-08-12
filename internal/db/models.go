@@ -19,6 +19,7 @@ const (
 	AttemptOutcomeFailed     AttemptOutcome = "failed"
 	AttemptOutcomeCancelled  AttemptOutcome = "cancelled"
 	AttemptOutcomeSuperseded AttemptOutcome = "superseded"
+	AttemptOutcomeLost       AttemptOutcome = "lost"
 )
 
 func (e *AttemptOutcome) Scan(src interface{}) error {
@@ -62,7 +63,8 @@ func (e AttemptOutcome) Valid() bool {
 		AttemptOutcomeSuccess,
 		AttemptOutcomeFailed,
 		AttemptOutcomeCancelled,
-		AttemptOutcomeSuperseded:
+		AttemptOutcomeSuperseded,
+		AttemptOutcomeLost:
 		return true
 	}
 	return false
@@ -75,6 +77,7 @@ func AllAttemptOutcomeValues() []AttemptOutcome {
 		AttemptOutcomeFailed,
 		AttemptOutcomeCancelled,
 		AttemptOutcomeSuperseded,
+		AttemptOutcomeLost,
 	}
 }
 
@@ -236,12 +239,11 @@ type Job struct {
 }
 
 type JobAttempt struct {
-	ID            pgtype.UUID        `json:"id"`
-	JobID         pgtype.UUID        `json:"job_id"`
-	AttemptNumber int32              `json:"attempt_number"`
-	WorkerID      string             `json:"worker_id"`
-	Outcome       AttemptOutcome     `json:"outcome"`
-	Result        pgtype.Text        `json:"result"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	ID         pgtype.UUID        `json:"id"`
+	JobID      pgtype.UUID        `json:"job_id"`
+	WorkerID   pgtype.Text        `json:"worker_id"`
+	Outcome    AttemptOutcome     `json:"outcome"`
+	Result     pgtype.Text        `json:"result"`
+	StartedAt  pgtype.Timestamptz `json:"started_at"`
+	FinishedAt pgtype.Timestamptz `json:"finished_at"`
 }
