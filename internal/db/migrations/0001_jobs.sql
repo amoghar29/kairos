@@ -43,7 +43,7 @@ CREATE TABLE jobs (
     queue               text        NOT NULL,
     state               job_state   NOT NULL DEFAULT 'pending',
     payload             jsonb       NOT NULL DEFAULT '{}'::jsonb,
-
+    handler             text        NOT NULL,
     priority            int         NOT NULL DEFAULT 5,
     retry_count         int         NOT NULL DEFAULT 0,
     max_retries         int         NOT NULL DEFAULT 3,
@@ -58,6 +58,7 @@ CREATE TABLE jobs (
     created_at          timestamptz NOT NULL DEFAULT now(),
     updated_at          timestamptz NOT NULL DEFAULT now(),
 
+    CONSTRAINT handler_not_empty       CHECK (handler <> ''),
     CONSTRAINT priority_range          CHECK (priority BETWEEN 1 AND 10),
     CONSTRAINT max_retries_range       CHECK (max_retries BETWEEN 0 AND 25),
     CONSTRAINT retry_count_valid       CHECK (retry_count >= 0),

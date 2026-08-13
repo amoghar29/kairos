@@ -47,6 +47,7 @@ func (r *JobRepository) Create(ctx context.Context, arg db.CreateJobParams) (job
 	}
 	if existing.Name != arg.Name ||
 		existing.Queue != arg.Queue ||
+		existing.Handler != arg.Handler ||
 		existing.Priority != arg.Priority ||
 		!bytes.Equal(existing.Payload, arg.Payload) {
 		return db.Job{}, false, ErrIdempotencyCollision

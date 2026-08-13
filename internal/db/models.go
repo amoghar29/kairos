@@ -227,6 +227,7 @@ type Job struct {
 	Queue          string             `json:"queue"`
 	State          JobState           `json:"state"`
 	Payload        []byte             `json:"payload"`
+	Handler        string             `json:"handler"`
 	Priority       int32              `json:"priority"`
 	RetryCount     int32              `json:"retry_count"`
 	MaxRetries     int32              `json:"max_retries"`

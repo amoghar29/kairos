@@ -24,6 +24,7 @@ const (
 type CreateJobRequest struct {
 	Name           string          `json:"name"`
 	Queue          string          `json:"queue"`
+	Handler        string          `json:"handler"`
 	Payload        json.RawMessage `json:"payload"`
 	Priority       *int32          `json:"priority"`
 	MaxRetries     *int32          `json:"max_retries"`
@@ -45,6 +46,13 @@ func (r *CreateJobRequest) Validate(queues config.Queues) map[string]string {
 		fields["queue"] = "must be provided"
 	case !queues.Exists(r.Queue):
 		fields["queue"] = fmt.Sprintf("unknown queue %q", r.Queue)
+	}
+
+	switch {
+	case r.Handler == "":
+		fields["handler"] = "must be provided"
+	case len(r.Handler) > 200:
+		fields["handler"] = "must not exceed 200 characters"
 	}
 
 	if r.Priority != nil && (*r.Priority < minPriority || *r.Priority > maxPriority) {
@@ -89,6 +97,7 @@ func (r *CreateJobRequest) ToParams() db.CreateJobParams {
 	return db.CreateJobParams{
 		Name:           r.Name,
 		Queue:          r.Queue,
+		Handler:        r.Handler,
 		Payload:        payload,
 		Priority:       priority,
 		MaxRetries:     maxRetries,

@@ -1,7 +1,7 @@
 -- name: CreateJob :one
 INSERT INTO jobs
-    (name, queue, payload, priority, max_retries, next_check_at, idempotency_key)
-VALUES (@name, @queue, @payload, @priority, @max_retries, now(), @idempotency_key)
+    (name, queue, payload, handler, priority, max_retries, next_check_at, idempotency_key)
+VALUES (@name, @queue, @payload, @handler, @priority, @max_retries, now(), @idempotency_key)
 RETURNING *;
 
 -- name: GetJobById :one
@@ -110,14 +110,14 @@ WITH claimed AS (
         version = version +1 ,
         next_check_at = now() + @stale_delta_threshold::interval
     WHERE jobs.id = @id AND state='queued'
-    RETURNING jobs.id,name,queue,payload,retry_count,max_retries,delivery_count,version
+    RETURNING jobs.id,name,queue,payload,handler,retry_count,max_retries,delivery_count,version
 ),
 attempt AS (
     INSERT INTO job_attempts (job_id, worker_id)
     SELECT claimed.id, @worker_id FROM claimed
     RETURNING job_attempts.id, job_attempts.job_id
 )
-SELECT c.id, c.name, c.queue, c.payload, c.retry_count, c.max_retries,
+SELECT c.id, c.name, c.queue, c.payload, c.handler, c.retry_count, c.max_retries,
        c.delivery_count, c.version,
        a.id AS attempt_id
 FROM claimed c
