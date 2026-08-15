@@ -86,10 +86,9 @@ func (c Config) StaleDelta() time.Duration {
 	return c.HeartbeatInterval.Std() * time.Duration(c.StaleMultiplier)
 }
 
-func LoadConfig() (Config, error) {
-	path := os.Getenv("WORKER_CONFIG_PATH")
+func LoadConfig(path string) (Config, error) {
 	if path == "" {
-		return Config{}, errors.New("WORKER_CONFIG_PATH must be set")
+		return Config{}, errors.New("worker config path must be set")
 	}
 
 	data, err := os.ReadFile(path)
