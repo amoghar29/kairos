@@ -200,7 +200,7 @@ func (q *Queries) DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error
 	return i, err
 }
 
-const expireDispatchLeases = `-- name: ExpireDispatchLeases :many
+const expireUnclaimedJobs = `-- name: ExpireUnclaimedJobs :many
 WITH expired AS (
     UPDATE jobs
     SET state = 'pending',
@@ -219,9 +219,9 @@ attempt AS (
 SELECT expired.id FROM expired JOIN attempt ON attempt.job_id = expired.id
 `
 
-// A queued job whose lease ran out was never claimed by any worker, so it goes back to pending.
-func (q *Queries) ExpireDispatchLeases(ctx context.Context, result string) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, expireDispatchLeases, result)
+// A queued job past its claim deadline was never picked up by any worker, so it goes back to pending.
+func (q *Queries) ExpireUnclaimedJobs(ctx context.Context, result string) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, expireUnclaimedJobs, result)
 	if err != nil {
 		return nil, err
 	}
@@ -539,12 +539,12 @@ RETURNING id
 `
 
 type MarkQueuedParams struct {
-	DispatchLease pgtype.Interval `json:"dispatch_lease"`
+	ClaimDeadline pgtype.Interval `json:"claim_deadline"`
 	Ids           []pgtype.UUID   `json:"ids"`
 }
 
 func (q *Queries) MarkQueued(ctx context.Context, arg MarkQueuedParams) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, markQueued, arg.DispatchLease, arg.Ids)
+	rows, err := q.db.Query(ctx, markQueued, arg.ClaimDeadline, arg.Ids)
 	if err != nil {
 		return nil, err
 	}
@@ -648,8 +648,8 @@ UPDATE jobs
 SET next_check_at = now() + $1::interval
 FROM (
     SELECT unnest($2::uuid[]) AS id, unnest($3::int[]) AS version
-) AS lease
-WHERE jobs.id = lease.id AND jobs.version = lease.version AND jobs.state = 'running'
+) AS claim
+WHERE jobs.id = claim.id AND jobs.version = claim.version AND jobs.state = 'running'
 RETURNING jobs.id
 `
 

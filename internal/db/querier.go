@@ -16,8 +16,8 @@ type Querier interface {
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (pgtype.UUID, error)
 	DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error)
-	// A queued job whose lease ran out was never claimed by any worker, so it goes back to pending.
-	ExpireDispatchLeases(ctx context.Context, result string) ([]pgtype.UUID, error)
+	// A queued job past its claim deadline was never picked up by any worker, so it goes back to pending.
+	ExpireUnclaimedJobs(ctx context.Context, result string) ([]pgtype.UUID, error)
 	GetAttemptLogs(ctx context.Context, arg GetAttemptLogsParams) ([]GetAttemptLogsRow, error)
 	GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDueJobsRow, error)
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)

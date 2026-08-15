@@ -10,11 +10,10 @@ import (
 	"github.com/amoghar29/kairos/internal/config"
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
+	"github.com/amoghar29/kairos/internal/queue"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/redis/go-redis/v9"
 )
-
-const queueKeyPrefix = "queue:"
 
 type JobConsumer struct {
 	jobRepository *job.JobRepository
@@ -51,7 +50,7 @@ func (jc *JobConsumer) pushJobsToRedis(ctx context.Context, jobs []db.GetDueJobs
 			ids = append(ids, job.ID.String())
 		}
 
-		key := queueKeyPrefix + currQueue
+		key := queue.Key(currQueue)
 		if err := jc.rdb.LPush(ctx, key, ids...).Err(); err != nil {
 			errs = append(errs, fmt.Errorf("lpush %s: %w", key, err))
 			continue
@@ -65,15 +64,15 @@ func (jc *JobConsumer) pushJobsToRedis(ctx context.Context, jobs []db.GetDueJobs
 	return pushed, errors.Join(errs...)
 }
 
-func (jc *JobConsumer) dispatchLease() pgtype.Interval {
+func (jc *JobConsumer) claimDeadline() pgtype.Interval {
 	return pgtype.Interval{
-		Microseconds: int64(jc.cfg.DispatchLease) * int64(time.Second/time.Microsecond),
+		Microseconds: int64(jc.cfg.ClaimDeadline) * int64(time.Second/time.Microsecond),
 		Valid:        true,
 	}
 }
 
 func (jc *JobConsumer) markJobAsQueued(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
-	return jc.jobRepository.MarksJobAsQueued(ctx, ids, jc.dispatchLease())
+	return jc.jobRepository.MarksJobAsQueued(ctx, ids, jc.claimDeadline())
 }
 
 func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
@@ -81,7 +80,7 @@ func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
-	if err := jc.expireDispatchLeases(ctx); err != nil {
+	if err := jc.expireUnclaimedJobs(ctx); err != nil {
 		return 0, err
 	}
 
@@ -151,18 +150,18 @@ func (jc *JobConsumer) reclaimStale(ctx context.Context) error {
 	return nil
 }
 
-const lostDispatchResult = "dispatched to redis but no worker claimed it before the dispatch lease expired"
+const lostDispatchResult = "dispatched to redis but no worker claimed it before the claim deadline passed"
 
-func (jc *JobConsumer) expireDispatchLeases(ctx context.Context) error {
-	expired, err := jc.jobRepository.ExpireDispatchLeases(ctx, lostDispatchResult)
+func (jc *JobConsumer) expireUnclaimedJobs(ctx context.Context) error {
+	expired, err := jc.jobRepository.ExpireUnclaimedJobs(ctx, lostDispatchResult)
 	if err != nil {
-		return fmt.Errorf("expire dispatch leases: %w", err)
+		return fmt.Errorf("expire unclaimed jobs: %w", err)
 	}
 	if len(expired) == 0 {
 		return nil
 	}
 
-	jc.logger.Info("requeued jobs with expired dispatch lease", slog.Int("count", len(expired)))
+	jc.logger.Info("requeued jobs past their claim deadline", slog.Int("count", len(expired)))
 
 	return nil
 }

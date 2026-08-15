@@ -1,10 +1,20 @@
-database:
+database: #todo
   partitioning:
     interval: monthly        # weekly | monthly | quarterly | half_yearly | yearly
     create_ahead: 6          # intervals kept provisioned ahead of now
 
   retention:
     days: 0                  # 0 = retain forever
+
+concurrency: 3
+brpop_timeout: 300ms
+queue_strategy: round_robin # priority = queue order wins always | round_robin = equal turns
+
+retry_backoff_base: 10s 
+retry_backoff_max: 1h
+
+outcome_write_timeout: 5s # 
+shutdown_grace: 30s
 
 heartbeat_interval: 5s
 stale_multiplier: 3 

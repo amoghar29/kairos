@@ -10,6 +10,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type QueueStrategy string
+
+const (
+	QueueStrategyPriority   QueueStrategy = "priority"
+	QueueStrategyRoundRobin QueueStrategy = "round_robin"
+)
+
+func (q QueueStrategy) Valid() bool {
+	switch q {
+	case QueueStrategyPriority, QueueStrategyRoundRobin:
+		return true
+	}
+	return false
+}
+
 type PartitionInterval string
 
 const (
@@ -44,6 +59,16 @@ type DatabaseConfig struct {
 
 type Config struct {
 	Database DatabaseConfig `yaml:"database"`
+
+	Concurrency   int             `yaml:"concurrency"`
+	BRPopTimeout  config.Duration `yaml:"brpop_timeout"`
+	QueueStrategy QueueStrategy   `yaml:"queue_strategy"`
+
+	RetryBackoffBase config.Duration `yaml:"retry_backoff_base"`
+	RetryBackoffMax  config.Duration `yaml:"retry_backoff_max"`
+
+	OutcomeWriteTimeout config.Duration `yaml:"outcome_write_timeout"`
+	ShutdownGrace       config.Duration `yaml:"shutdown_grace"`
 
 	HeartbeatInterval config.Duration `yaml:"heartbeat_interval"`
 	StaleMultiplier   int             `yaml:"stale_multiplier"`
@@ -93,6 +118,27 @@ func (c *Config) validate() error {
 	}
 	if c.Database.Retention.Days < 0 {
 		return errors.New("database.retention.days must not be negative")
+	}
+	if c.Concurrency <= 0 {
+		return errors.New("concurrency must be greater than 0")
+	}
+	if c.BRPopTimeout <= 0 {
+		return errors.New("brpop_timeout must be greater than 0")
+	}
+	if !c.QueueStrategy.Valid() {
+		return fmt.Errorf("queue_strategy %q must be one of priority, round_robin", c.QueueStrategy)
+	}
+	if c.RetryBackoffBase <= 0 {
+		return errors.New("retry_backoff_base must be greater than 0")
+	}
+	if c.RetryBackoffMax < c.RetryBackoffBase {
+		return errors.New("retry_backoff_max must be at least retry_backoff_base")
+	}
+	if c.OutcomeWriteTimeout <= 0 {
+		return errors.New("outcome_write_timeout must be greater than 0")
+	}
+	if c.ShutdownGrace <= 0 {
+		return errors.New("shutdown_grace must be greater than 0")
 	}
 	if c.HeartbeatInterval <= 0 {
 		return errors.New("heartbeat_interval must be greater than 0")

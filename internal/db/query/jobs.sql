@@ -77,14 +77,14 @@ RETURNING *;
 -- name: MarkQueued :many
 UPDATE jobs
 SET state = 'queued',
-    next_check_at = now() + @dispatch_lease::interval,
+    next_check_at = now() + @claim_deadline::interval,
     version = version + 1
 WHERE id = ANY(@ids::uuid[])
   AND state IN ('pending', 'awaiting_retry')
 RETURNING id;
 
--- A queued job whose lease ran out was never claimed by any worker, so it goes back to pending.
--- name: ExpireDispatchLeases :many
+-- A queued job past its claim deadline was never picked up by any worker, so it goes back to pending.
+-- name: ExpireUnclaimedJobs :many
 WITH expired AS (
     UPDATE jobs
     SET state = 'pending',
@@ -128,8 +128,8 @@ UPDATE jobs
 SET next_check_at = now() + @stale_delta_threshold::interval
 FROM (
     SELECT unnest(@ids::uuid[]) AS id, unnest(@versions::int[]) AS version
-) AS lease
-WHERE jobs.id = lease.id AND jobs.version = lease.version AND jobs.state = 'running'
+) AS claim
+WHERE jobs.id = claim.id AND jobs.version = claim.version AND jobs.state = 'running'
 RETURNING jobs.id;
 
 -- name: UpdateJobCompletion :execrows

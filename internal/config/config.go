@@ -66,7 +66,7 @@ type ConsumerConfig struct {
 	// TODO: allow a per-queue override on Queue that falls back to this.
 	QueueLimit       int     `yaml:"queue_limit"`
 	MaxDeliveryCount int     `yaml:"max_delivery_count"`
-	DispatchLease    int     `yaml:"dispatch_lease"`
+	ClaimDeadline    int     `yaml:"claim_deadline"`
 	Queues           Queues  `yaml:"queues"`
 	AgingRate        float64 `yaml:"aging_rate"`
 }
@@ -200,10 +200,10 @@ func (c *ConsumerConfig) validate() error {
 	if c.QueueLimit <= 0 {
 		return errors.New("queue_limit must be greater than 0")
 	}
-	// A lease shorter than the poll interval can expire before a worker has had a realistic
+	// A deadline shorter than the poll interval can pass before a worker has had a realistic
 	// chance to pick the job up, since expiry is only ever noticed on a poll.
-	if c.DispatchLease <= 0 || c.DispatchLease <= c.PollInterval {
-		return errors.New("dispatch_lease (seconds) must be greater than 0 and longer than poll_interval")
+	if c.ClaimDeadline <= 0 || c.ClaimDeadline <= c.PollInterval {
+		return errors.New("claim_deadline (seconds) must be greater than 0 and longer than poll_interval")
 	}
 
 	seen := make(map[string]struct{}, len(c.Queues))

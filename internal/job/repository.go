@@ -21,7 +21,7 @@ var (
 
 const uniqueViolation = "23505"
 
-type JobLease struct {
+type JobClaim struct {
 	ID      pgtype.UUID
 	Version int32
 }
@@ -158,18 +158,18 @@ func (r *JobRepository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue 
 	return jobs, nil
 }
 
-func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID, dispatchLease pgtype.Interval) ([]pgtype.UUID, error) {
-	queued, err := r.q.MarkQueued(ctx, db.MarkQueuedParams{Ids: ids, DispatchLease: dispatchLease})
+func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID, claimDeadline pgtype.Interval) ([]pgtype.UUID, error) {
+	queued, err := r.q.MarkQueued(ctx, db.MarkQueuedParams{Ids: ids, ClaimDeadline: claimDeadline})
 	if err != nil {
 		return nil, fmt.Errorf("mark jobs as queued: %w", err)
 	}
 	return queued, nil
 }
 
-func (r *JobRepository) ExpireDispatchLeases(ctx context.Context, result string) ([]pgtype.UUID, error) {
-	expired, err := r.q.ExpireDispatchLeases(ctx, result)
+func (r *JobRepository) ExpireUnclaimedJobs(ctx context.Context, result string) ([]pgtype.UUID, error) {
+	expired, err := r.q.ExpireUnclaimedJobs(ctx, result)
 	if err != nil {
-		return nil, fmt.Errorf("expire dispatch leases: %w", err)
+		return nil, fmt.Errorf("expire unclaimed jobs: %w", err)
 	}
 	return expired, nil
 }
@@ -197,15 +197,15 @@ func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, w
 
 
 
-func (r *JobRepository) RefreshHeartbeats(ctx context.Context, leases []JobLease, staleDelta pgtype.Interval) ([]pgtype.UUID, error) {
-	if len(leases) == 0 {
+func (r *JobRepository) RefreshHeartbeats(ctx context.Context, claims []JobClaim, staleDelta pgtype.Interval) ([]pgtype.UUID, error) {
+	if len(claims) == 0 {
 		return nil, nil
 	}
-	ids := make([]pgtype.UUID, len(leases))
-	versions := make([]int32, len(leases))
-	for i, l := range leases {
-		ids[i] = l.ID
-		versions[i] = l.Version
+	ids := make([]pgtype.UUID, len(claims))
+	versions := make([]int32, len(claims))
+	for i, c := range claims {
+		ids[i] = c.ID
+		versions[i] = c.Version
 	}
 	renewed, err := r.q.RefreshHeartBeats(ctx, db.RefreshHeartBeatsParams{
 		Ids:                 ids,

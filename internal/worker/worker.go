@@ -3,75 +3,53 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
+	"github.com/amoghar29/kairos/internal/queue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/redis/go-redis/v9"
 )
 
-const lostLeaseResult = "lease lost while executing: the job was reclaimed or finished elsewhere"
-
-type InflightJob struct {
-	Name      string
-	ID        pgtype.UUID
-	AttemptID pgtype.UUID
-	Version   int32
-	Queue     string
-	Handler   string
-	Cancel    context.CancelFunc `json:"-"`
-}
-type registryEntry struct {
-	ID        uuid.UUID     `json:"id"`
-	Queues    []string      `json:"queues"`
-	InFlight  []InflightJob `json:"in_flight"`
-	StartedAt time.Time     `json:"started_at"`
-	LastSeen  time.Time     `json:"last_seen"`
-}
 type WorkerService struct {
-	jobRepo   *job.JobRepository
-	rdb       *redis.Client
-	log       *slog.Logger
-	logs      *logSink
-	cfg       Config
-	queues    []string
-	id        uuid.UUID
-	startedAt time.Time
-	mu        sync.RWMutex
-	inflight  map[pgtype.UUID]InflightJob
+	jobRepo     *job.JobRepository
+	rdb         *redis.Client
+	log         *slog.Logger
+	logs        *logSink
+	cfg         Config
+	queues      []string
+	id          uuid.UUID
+	startedAt   time.Time
+	mu          sync.RWMutex
+	inflight    map[pgtype.UUID]InflightJob
+	concurrency int
+	sem         chan struct{}
+	handlers    map[string]HandlerFunc
 }
 
-func NewWorkerService(jobRepo *job.JobRepository, rdb *redis.Client, log *slog.Logger, cfg Config, queues []string) (*WorkerService, error) {
-	if len(queues) == 0 {
-		return nil, fmt.Errorf("worker must serve at least one queue")
-	}
-	seen := make(map[string]struct{}, len(queues))
-	for _, q := range queues {
-		if q == "" {
-			return nil, fmt.Errorf("queue name must not be empty")
-		}
-		if _, dup := seen[q]; dup {
-			return nil, fmt.Errorf("duplicate queue name %q", q)
-		}
-		seen[q] = struct{}{}
-	}
-
+func NewWorkerService(jobRepo *job.JobRepository, rdb *redis.Client, log *slog.Logger, cfg Config, queues []string, concurrency int, handlers map[string]HandlerFunc) *WorkerService {
 	return &WorkerService{
-		jobRepo:   jobRepo,
-		rdb:       rdb,
-		log:       log,
-		logs:      newLogSink(cfg.LogFlushThreshold, cfg.LogBufferCapacity),
-		cfg:       cfg,
-		queues:    queues,
-		id:        uuid.New(),
-		startedAt: time.Now().UTC(),
-		inflight:  make(map[pgtype.UUID]InflightJob),
-	}, nil
+		jobRepo:     jobRepo,
+		rdb:         rdb,
+		log:         log,
+		logs:        newLogSink(cfg.LogFlushThreshold, cfg.LogBufferCapacity),
+		cfg:         cfg,
+		queues:      queues,
+		handlers:    handlers,
+		concurrency: concurrency,
+		sem:         make(chan struct{}, concurrency),
+		id:          uuid.New(),
+		startedAt:   time.Now().UTC(),
+		inflight:    make(map[pgtype.UUID]InflightJob),
+	}
 }
 
 func (w *WorkerService) registryKey() string {
@@ -185,20 +163,20 @@ func (w *WorkerService) runHeartbeatRefresher(ctx context.Context) error {
 
 func (w *WorkerService) refreshHeartbeat(ctx context.Context) error {
 	w.mu.RLock()
-	leases := make([]job.JobLease, 0, len(w.inflight))
+	claims := make([]job.JobClaim, 0, len(w.inflight))
 	for _, runningJob := range w.inflight {
-		leases = append(leases, job.JobLease{
+		claims = append(claims, job.JobClaim{
 			ID:      runningJob.ID,
 			Version: runningJob.Version,
 		})
 	}
 	w.mu.RUnlock()
 
-	if len(leases) == 0 {
+	if len(claims) == 0 {
 		return nil
 	}
 
-	renewed, err := w.jobRepo.RefreshHeartbeats(ctx, leases, w.staleDelta())
+	renewed, err := w.jobRepo.RefreshHeartbeats(ctx, claims, w.staleDelta())
 	if err != nil {
 		return fmt.Errorf("refresh heartbeats: %w", err)
 	}
@@ -207,19 +185,19 @@ func (w *WorkerService) refreshHeartbeat(ctx context.Context) error {
 	for _, id := range renewed {
 		held[id] = struct{}{}
 	}
-	for _, l := range leases {
-		if _, ok := held[l.ID]; ok {
+	for _, c := range claims {
+		if _, ok := held[c.ID]; ok {
 			continue
 		}
-		abandoned, ok := w.abandonJob(l.ID, l.Version)
+		abandoned, ok := w.abandonJob(c.ID, c.Version)
 		if !ok {
 			continue
 		}
-		w.log.Warn("lost job lease, cancelling execution", "job_id", l.ID, "version", l.Version)
+		w.log.Warn("lost job claim, cancelling execution", "job_id", c.ID, "version", c.Version)
 
-		if _, err := w.jobRepo.CompleteAttempt(ctx, abandoned.AttemptID, db.AttemptOutcomeCancelled, pgtype.Text{String: lostLeaseResult, Valid: true}); err != nil {
-			w.log.Error("close attempt for lost lease",
-				"job_id", l.ID, "attempt_id", abandoned.AttemptID, "err", err)
+		if _, err := w.jobRepo.CompleteAttempt(ctx, abandoned.AttemptID, db.AttemptOutcomeCancelled, pgtype.Text{String: lostClaimResult, Valid: true}); err != nil {
+			w.log.Error("close attempt for lost claim",
+				"job_id", c.ID, "attempt_id", abandoned.AttemptID, "err", err)
 		}
 	}
 
@@ -261,11 +239,209 @@ func (w *WorkerService) flushLogs(ctx context.Context) {
 	}
 }
 
+func (w *WorkerService) executeJob(ctx context.Context, jobID pgtype.UUID) {
+	defer func() { <-w.sem }()
+
+	claimed, err := w.jobRepo.ClaimForExecution(ctx, jobID, w.id.String(), w.staleDelta())
+	if err != nil {
+		// Someone else claimed it, or it is gone
+		if errors.Is(err, job.ErrConflict) || errors.Is(err, job.ErrNotFound) {
+			return
+		}
+		w.log.Error("claim job for execution", "job_id", jobID, "err", err)
+		return
+	}
+
+	jobCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	w.trackJob(InflightJob{
+		Name:      claimed.Name,
+		ID:        claimed.ID,
+		AttemptID: claimed.AttemptID,
+		Version:   claimed.Version,
+		Queue:     claimed.Queue,
+		Handler:   claimed.Handler,
+		Cancel:    cancel,
+	})
+	defer w.untrackJob(claimed.ID)
+
+	logs := newJobLogger(w.logs, claimed.AttemptID)
+	result, runErr := w.runHandler(jobCtx, claimed, logs)
+
+	w.recordOutcome(ctx, claimed, result, runErr)
+}
+
+func (w *WorkerService) recordOutcome(ctx context.Context, claimed db.ClaimJobForExecutionRow, result string, runErr error) {
+	// Detached: this runs *because* the context ended, so inheriting its cancellation
+	// would mean a job that finished during shutdown never records that it did, and gets
+	// reclaimed and run a second time.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), w.cfg.OutcomeWriteTimeout.Std())
+	defer cancel()
+
+	outcome, attemptResult := db.AttemptOutcomeSuccess, result
+	if runErr != nil {
+		outcome, attemptResult = db.AttemptOutcomeFailed, runErr.Error()
+		w.log.Error("job execution failed", "job_id", claimed.ID, "handler", claimed.Handler, "err", runErr)
+	}
+
+	if _, err := w.jobRepo.CompleteAttempt(ctx, claimed.AttemptID, outcome, pgtype.Text{String: attemptResult, Valid: true}); err != nil {
+		w.log.Error("close attempt", "job_id", claimed.ID, "attempt_id", claimed.AttemptID, "err", err)
+	}
+
+	if runErr == nil {
+		applied, err := w.jobRepo.CompleteJob(ctx, claimed.ID, claimed.Version)
+		if err != nil {
+			w.log.Error("mark job success", "job_id", claimed.ID, "err", err)
+		} else if !applied {
+			w.log.Warn("job no longer ours at completion", "job_id", claimed.ID, "version", claimed.Version)
+		}
+		return
+	}
+
+	nextCheckAt := pgtype.Timestamptz{Time: time.Now().UTC().Add(w.retryDelay(claimed.RetryCount)), Valid: true}
+	applied, err := w.jobRepo.RecordExecutionFailure(ctx, claimed.ID, claimed.Version, nextCheckAt)
+	if err != nil {
+		w.log.Error("record job failure", "job_id", claimed.ID, "err", err)
+	} else if !applied {
+		w.log.Warn("job no longer ours at completion", "job_id", claimed.ID, "version", claimed.Version)
+	}
+}
+
+func (w *WorkerService) retryDelay(retryCount int32) time.Duration {
+	base := w.cfg.RetryBackoffBase.Std()
+	window := w.cfg.RetryBackoffMax.Std()
+
+	if retryCount < 32 {
+		if scaled := base << uint(retryCount); scaled > 0 && scaled < window {
+			window = scaled
+		}
+	}
+	return time.Duration(rand.Int64N(int64(window)) + 1)
+}
+
+func (w *WorkerService) runHandler(ctx context.Context, claimed db.ClaimJobForExecutionRow, logs *JobLogger) (result string, err error) {
+	fn, ok := w.handlers[claimed.Handler]
+	if !ok {
+		return "", fmt.Errorf("no handler registered for %q", claimed.Handler)
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			result = ""
+			err = fmt.Errorf("handler %q panicked: %v\n%s", claimed.Handler, r, debug.Stack())
+		}
+	}()
+
+	return fn(ctx, Job{
+		ID:         uuid.UUID(claimed.ID.Bytes),
+		Name:       claimed.Name,
+		Queue:      claimed.Queue,
+		Handler:    claimed.Handler,
+		Payload:    claimed.Payload,
+		RetryCount: claimed.RetryCount,
+		MaxRetries: claimed.MaxRetries,
+		Logs:       logs,
+	})
+}
+
+func rotate(keys []string) {
+	if len(keys) < 2 {
+		return
+	}
+	first := keys[0]
+	copy(keys, keys[1:])
+	keys[len(keys)-1] = first
+}
+
+func (w *WorkerService) PopAndDispatchJobs(ctx context.Context) error {
+	keys := make([]string, len(w.queues))
+	for i, q := range w.queues {
+		keys[i] = queue.Key(q)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case w.sem <- struct{}{}:
+		}
+
+		popped, err := w.rdb.BRPop(ctx, w.cfg.BRPopTimeout.Std(), keys...).Result()
+		if err != nil {
+			<-w.sem
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			if ctx.Err() != nil {
+				return nil
+			}
+			w.log.Error("brpop", "queues", w.queues, "err", err)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(w.cfg.BRPopTimeout.Std()):
+			}
+			continue
+		}
+
+		if w.cfg.QueueStrategy == QueueStrategyRoundRobin {
+			rotate(keys)
+		}
+
+		var id pgtype.UUID
+		if err := id.Scan(popped[1]); err != nil {
+			<-w.sem
+			w.log.Error("bad job id in queue", "queue", popped[0], "value", popped[1], "err", err)
+			continue
+		}
+
+		go w.executeJob(ctx, id)
+	}
+}
+
+// ctx cancellation only stops new work being taken. The maintenance loops run on a
+// detached context so claims keep being renewed and logs keep flushing while in-flight
+// jobs drain; they stop once the drain is over.
 func (w *WorkerService) Run(ctx context.Context) error {
+	bgCtx, stopBackground := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopBackground()
 
-	go w.runRegistry(ctx)
-	go w.runHeartbeatRefresher(ctx)
-	go w.flushLogger(ctx)
+	var wg sync.WaitGroup
+	for _, loop := range []func(context.Context) error{
+		w.runRegistry,
+		w.runHeartbeatRefresher,
+		w.flushLogger,
+	} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := loop(bgCtx); err != nil {
+				w.log.Error("worker loop exited", "err", err)
+			}
+		}()
+	}
 
-	return nil
+	err := w.PopAndDispatchJobs(ctx)
+
+	w.drainInflight()
+	stopBackground()
+	wg.Wait()
+
+	return err
+}
+
+func (w *WorkerService) drainInflight() {
+	grace := time.NewTimer(w.cfg.ShutdownGrace.Std())
+	defer grace.Stop()
+
+	for held := 0; held < w.concurrency; held++ {
+		select {
+		case w.sem <- struct{}{}:
+		case <-grace.C:
+			w.log.Warn("shutdown grace expired, abandoning in-flight jobs",
+				"remaining", w.concurrency-held)
+			return
+		}
+	}
 }
