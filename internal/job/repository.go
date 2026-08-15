@@ -21,6 +21,11 @@ var (
 
 const uniqueViolation = "23505"
 
+type JobLease struct {
+	ID      pgtype.UUID
+	Version int32
+}
+
 type JobRepository struct {
 	q db.Querier
 }
@@ -191,16 +196,26 @@ func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, w
 }
 
 
-func (r *JobRepository) RefreshHeartbeat(ctx context.Context, id pgtype.UUID, version int32, staleDelta pgtype.Interval) (bool, error) {
-	rows, err := r.q.RefreshHeartBeat(ctx, db.RefreshHeartBeatParams{
-		ID:                  id,
-		Version:             version,
+
+func (r *JobRepository) RefreshHeartbeats(ctx context.Context, leases []JobLease, staleDelta pgtype.Interval) ([]pgtype.UUID, error) {
+	if len(leases) == 0 {
+		return nil, nil
+	}
+	ids := make([]pgtype.UUID, len(leases))
+	versions := make([]int32, len(leases))
+	for i, l := range leases {
+		ids[i] = l.ID
+		versions[i] = l.Version
+	}
+	renewed, err := r.q.RefreshHeartBeats(ctx, db.RefreshHeartBeatsParams{
+		Ids:                 ids,
+		Versions:            versions,
 		StaleDeltaThreshold: staleDelta,
 	})
 	if err != nil {
-		return false, fmt.Errorf("error in refresh heartbeat for job %s: %w", id, err)
+		return nil, fmt.Errorf("error in refresh heartbeats: %w", err)
 	}
-	return rows > 0, nil
+	return renewed, nil
 }
 
 func (r *JobRepository) CompleteJob(ctx context.Context, id pgtype.UUID, version int32) (bool, error) {
@@ -245,7 +260,7 @@ type LogLine struct {
 
 const defaultLogLevel = db.LogLevelInfo
 
-func (r *JobRepository) CreateJobLogs(ctx context.Context, lines []LogLine) (int64, error) {
+func (r *JobRepository) InsertJobLogs(ctx context.Context, lines []LogLine) (int64, error) {
 	if len(lines) == 0 {
 		return 0, nil
 	}

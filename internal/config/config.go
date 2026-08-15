@@ -42,10 +42,26 @@ type Queue struct {
 
 type Queues []Queue
 
+
+type Duration time.Duration
+
+func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
+	var s string
+	if err := value.Decode(&s); err != nil {
+		return fmt.Errorf("duration must be a string such as \"30s\": %w", err)
+	}
+	parsed, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("invalid duration %q: %w", s, err)
+	}
+	*d = Duration(parsed)
+	return nil
+}
+
+func (d Duration) Std() time.Duration { return time.Duration(d) }
+
 type ConsumerConfig struct {
-	PollInterval      int `yaml:"poll_interval"`
-	StaleThreshold    int `yaml:"stale_threshold"`
-	HeartbeatInterval int `yaml:"heartbeat_interval"`
+	PollInterval int `yaml:"poll_interval"`
 	// QueueLimit caps how many due jobs are fetched per queue per poll. Global for now.
 	// TODO: allow a per-queue override on Queue that falls back to this.
 	QueueLimit       int     `yaml:"queue_limit"`
@@ -177,9 +193,6 @@ func LoadConsumerConfig() (ConsumerConfig, error) {
 func (c *ConsumerConfig) validate() error {
 	if c.PollInterval <= 0 {
 		return errors.New("poll_interval must be greater than 0")
-	}
-	if c.HeartbeatInterval <= 0 || c.HeartbeatInterval >= c.StaleThreshold {
-		return errors.New("heartbeat_interval must be greater than 0 and less than stale_threshold")
 	}
 	if c.MaxDeliveryCount <= 0 {
 		return errors.New("max_delivery_count must be greater than 0")

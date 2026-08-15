@@ -5,3 +5,12 @@ database:
 
   retention:
     days: 0                  # 0 = retain forever
+
+heartbeat_interval: 5s
+stale_multiplier: 3 
+registry_interval: 10s
+registry_ttl: 30s 
+log_flush_interval: 1s
+log_flush_timeout: 5s
+log_flush_threshold: 256
+log_buffer_capacity: 4096 

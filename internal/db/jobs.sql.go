@@ -643,24 +643,40 @@ func (q *Queries) RecordJobExecutionFailure(ctx context.Context, arg RecordJobEx
 	return result.RowsAffected(), nil
 }
 
-const refreshHeartBeat = `-- name: RefreshHeartBeat :execrows
+const refreshHeartBeats = `-- name: RefreshHeartBeats :many
 UPDATE jobs
 SET next_check_at = now() + $1::interval
-WHERE id = $2 and version = $3 and state='running'
+FROM (
+    SELECT unnest($2::uuid[]) AS id, unnest($3::int[]) AS version
+) AS lease
+WHERE jobs.id = lease.id AND jobs.version = lease.version AND jobs.state = 'running'
+RETURNING jobs.id
 `
 
-type RefreshHeartBeatParams struct {
+type RefreshHeartBeatsParams struct {
 	StaleDeltaThreshold pgtype.Interval `json:"stale_delta_threshold"`
-	ID                  pgtype.UUID     `json:"id"`
-	Version             int32           `json:"version"`
+	Ids                 []pgtype.UUID   `json:"ids"`
+	Versions            []int32         `json:"versions"`
 }
 
-func (q *Queries) RefreshHeartBeat(ctx context.Context, arg RefreshHeartBeatParams) (int64, error) {
-	result, err := q.db.Exec(ctx, refreshHeartBeat, arg.StaleDeltaThreshold, arg.ID, arg.Version)
+func (q *Queries) RefreshHeartBeats(ctx context.Context, arg RefreshHeartBeatsParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, refreshHeartBeats, arg.StaleDeltaThreshold, arg.Ids, arg.Versions)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const rerunDeadJob = `-- name: RerunDeadJob :one

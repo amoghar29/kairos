@@ -123,10 +123,14 @@ SELECT c.id, c.name, c.queue, c.payload, c.handler, c.retry_count, c.max_retries
 FROM claimed c
 JOIN attempt a ON a.job_id = c.id;
 
--- name: RefreshHeartBeat :execrows
+-- name: RefreshHeartBeats :many
 UPDATE jobs
 SET next_check_at = now() + @stale_delta_threshold::interval
-WHERE id = @id and version = @version and state='running';
+FROM (
+    SELECT unnest(@ids::uuid[]) AS id, unnest(@versions::int[]) AS version
+) AS lease
+WHERE jobs.id = lease.id AND jobs.version = lease.version AND jobs.state = 'running'
+RETURNING jobs.id;
 
 -- name: UpdateJobCompletion :execrows
 UPDATE jobs

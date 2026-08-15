@@ -29,7 +29,7 @@ type Querier interface {
 	MarkQueued(ctx context.Context, arg MarkQueuedParams) ([]pgtype.UUID, error)
 	ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) ([]Job, error)
 	RecordJobExecutionFailure(ctx context.Context, arg RecordJobExecutionFailureParams) (int64, error)
-	RefreshHeartBeat(ctx context.Context, arg RefreshHeartBeatParams) (int64, error)
+	RefreshHeartBeats(ctx context.Context, arg RefreshHeartBeatsParams) ([]pgtype.UUID, error)
 	RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job, error)
 	SupersedeOpenAttempts(ctx context.Context, jobIds []pgtype.UUID) error
 	UpdateJobAttemptExecutionCompletion(ctx context.Context, arg UpdateJobAttemptExecutionCompletionParams) (int64, error)

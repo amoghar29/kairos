@@ -1,6 +1,4 @@
 poll_interval: 5 #in seconds
-stale_threshold: 60 #in seconds
-heartbeat_interval: 2 #in seconds
 queue_limit: 10
 max_delivery_count: 3
 aging_rate: -2.1
