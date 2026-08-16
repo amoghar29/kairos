@@ -21,6 +21,7 @@ type InflightJob struct {
 }
 
 type registryEntry struct {
+	Name      string        `json:"name"`
 	ID        uuid.UUID     `json:"id"`
 	Queues    []string      `json:"queues"`
 	InFlight  []InflightJob `json:"in_flight"`

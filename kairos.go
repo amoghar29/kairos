@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 	"github.com/amoghar29/kairos/internal/config"
 	"github.com/amoghar29/kairos/internal/db"
@@ -34,6 +35,7 @@ type RunOptions struct {
 	Queues []string
 	// Zero falls back to concurrency in the worker config file.
 	Concurrency int
+	Name        string
 }
 
 type Kairos struct {
@@ -130,6 +132,10 @@ func (k *Kairos) Run(ctx context.Context, opts RunOptions) error {
 		return err
 	}
 
+	if err := validateName(opts.Name); err != nil {
+		return err
+	}
+
 	concurrency := opts.Concurrency
 	if concurrency == 0 {
 		concurrency = k.cfg.Concurrency
@@ -143,7 +149,7 @@ func (k *Kairos) Run(ctx context.Context, opts RunOptions) error {
 	}
 
 	jobRepo := job.NewJobRepository(db.New(k.pool))
-	w := worker.NewWorkerService(jobRepo, k.rdb, k.log, k.cfg, opts.Queues, concurrency, k.handlers)
+	w := worker.NewWorkerService(jobRepo, k.rdb, k.log, k.cfg, opts.Name, opts.Queues, concurrency, k.handlers)
 
 	return w.Run(ctx)
 }
@@ -164,11 +170,30 @@ func OptionsFromArgs(name string, args []string) (RunOptions, error) {
 		return nil
 	})
 	fs.IntVar(&opts.Concurrency, "concurrency", 0, "max jobs run at once; 0 uses the worker config file")
+	fs.StringVar(&opts.Name, "name", "", "worker name shown in the registry (required)")
 
 	if err := fs.Parse(args); err != nil {
 		return RunOptions{}, err
 	}
+	if err := validateName(opts.Name); err != nil {
+		return RunOptions{}, err
+	}
+	if err := validateQueues(opts.Queues); err != nil {
+		return RunOptions{}, err
+	}
 	return opts, nil
+}
+
+// ":" separates the name from the run id in the registry key, so a name carrying one would
+// make the two halves ambiguous to anything parsing the key back apart.
+func validateName(name string) error {
+	if name == "" {
+		return errors.New("worker name must be given")
+	}
+	if strings.ContainsAny(name, ": \t\n") {
+		return fmt.Errorf("worker name %q must not contain ':' or whitespace", name)
+	}
+	return nil
 }
 
 func validateQueues(queues []string) error {

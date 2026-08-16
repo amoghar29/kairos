@@ -26,6 +26,7 @@ type WorkerService struct {
 	logs        *logSink
 	cfg         Config
 	queues      []string
+	name        string
 	id          uuid.UUID
 	startedAt   time.Time
 	mu          sync.RWMutex
@@ -35,13 +36,14 @@ type WorkerService struct {
 	handlers    map[string]HandlerFunc
 }
 
-func NewWorkerService(jobRepo *job.JobRepository, rdb *redis.Client, log *slog.Logger, cfg Config, queues []string, concurrency int, handlers map[string]HandlerFunc) *WorkerService {
+func NewWorkerService(jobRepo *job.JobRepository, rdb *redis.Client, log *slog.Logger, cfg Config, name string, queues []string, concurrency int, handlers map[string]HandlerFunc) *WorkerService {
 	return &WorkerService{
 		jobRepo:     jobRepo,
 		rdb:         rdb,
 		log:         log,
 		logs:        newLogSink(cfg.LogFlushThreshold, cfg.LogBufferCapacity),
 		cfg:         cfg,
+		name:        name,
 		queues:      queues,
 		handlers:    handlers,
 		concurrency: concurrency,
@@ -52,8 +54,15 @@ func NewWorkerService(jobRepo *job.JobRepository, rdb *redis.Client, log *slog.L
 	}
 }
 
+// The name is operator-chosen and reused across restarts, so the run id is what keeps two
+// processes of the same name apart. Together they are the worker's identity everywhere it
+// is recorded: the registry key and job_attempts.worker_id.
+func (w *WorkerService) identity() string {
+	return fmt.Sprintf("%s:%s", w.name, w.id)
+}
+
 func (w *WorkerService) registryKey() string {
-	return fmt.Sprintf("kairos:worker:%s", w.id)
+	return fmt.Sprintf("kairos:worker:%s", w.identity())
 }
 
 func (w *WorkerService) staleDelta() pgtype.Interval {
@@ -100,6 +109,7 @@ func (w *WorkerService) publishRegistry(ctx context.Context) error {
 
 	w.mu.RUnlock()
 	payload, err := json.Marshal((registryEntry{
+		Name:      w.name,
 		ID:        w.id,
 		Queues:    w.queues,
 		InFlight:  jobs,
@@ -242,7 +252,7 @@ func (w *WorkerService) flushLogs(ctx context.Context) {
 func (w *WorkerService) executeJob(ctx context.Context, jobID pgtype.UUID) {
 	defer func() { <-w.sem }()
 
-	claimed, err := w.jobRepo.ClaimForExecution(ctx, jobID, w.id.String(), w.staleDelta())
+	claimed, err := w.jobRepo.ClaimForExecution(ctx, jobID, w.identity(), w.staleDelta())
 	if err != nil {
 		// Someone else claimed it, or it is gone
 		if errors.Is(err, job.ErrConflict) || errors.Is(err, job.ErrNotFound) {
