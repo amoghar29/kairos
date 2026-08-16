@@ -24,16 +24,16 @@ type JobClaim struct {
 	Version int32
 }
 
-type JobRepository struct {
+type Repository struct {
 	q db.Querier
 }
 
-func NewJobRepository(q db.Querier) *JobRepository {
-	return &JobRepository{q: q}
+func New(q db.Querier) *Repository {
+	return &Repository{q: q}
 }
 
 
-func (r *JobRepository) Create(ctx context.Context, arg db.CreateJobParams) (job db.Job, created bool, err error) {
+func (r *Repository) Create(ctx context.Context, arg db.CreateJobParams) (job db.Job, created bool, err error) {
 	job, err = r.q.CreateJob(ctx, arg)
 	if err == nil {
 		return job, true, nil
@@ -51,7 +51,7 @@ func (r *JobRepository) Create(ctx context.Context, arg db.CreateJobParams) (job
 	return existing, false, nil
 }
 
-func (r *JobRepository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, error) {
+func (r *Repository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, error) {
 	job, err := r.q.GetJobById(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Job{}, ErrNotFound
@@ -62,7 +62,7 @@ func (r *JobRepository) GetByID(ctx context.Context, id pgtype.UUID) (db.Job, er
 	return job, nil
 }
 
-func (r *JobRepository) List(ctx context.Context, arg db.ListJobsParams) ([]db.Job, error) {
+func (r *Repository) List(ctx context.Context, arg db.ListJobsParams) ([]db.Job, error) {
 	jobs, err := r.q.ListJobs(ctx, arg)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs: %w", err)
@@ -70,7 +70,7 @@ func (r *JobRepository) List(ctx context.Context, arg db.ListJobsParams) ([]db.J
 	return jobs, nil
 }
 
-func (r *JobRepository) Delete(ctx context.Context, id pgtype.UUID) error {
+func (r *Repository) Delete(ctx context.Context, id pgtype.UUID) error {
 	_, err := r.q.DeleteJobById(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -81,37 +81,37 @@ func (r *JobRepository) Delete(ctx context.Context, id pgtype.UUID) error {
 	return nil
 }
 
-func (r *JobRepository) Cancel(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+func (r *Repository) Cancel(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
 	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
 		return r.q.CancelJob(ctx, db.CancelJobParams{ID: id, Version: version})
 	})
 }
 
-func (r *JobRepository) Rerun(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+func (r *Repository) Rerun(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
 	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
 		return r.q.RerunDeadJob(ctx, db.RerunDeadJobParams{ID: id, Version: version})
 	})
 }
 
-func (r *JobRepository) Pause(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+func (r *Repository) Pause(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
 	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
 		return r.q.PauseJob(ctx, db.PauseJobParams{ID: id, Version: version})
 	})
 }
 
-func (r *JobRepository) Resume(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+func (r *Repository) Resume(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
 	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
 		return r.q.ResumeJob(ctx, db.ResumeJobParams{ID: id, Version: version})
 	})
 }
 
-func (r *JobRepository) Reschedule(ctx context.Context, arg db.RescheduleJobParams) (db.Job, error) {
+func (r *Repository) Reschedule(ctx context.Context, arg db.RescheduleJobParams) (db.Job, error) {
 	return r.guardedUpdate(ctx, arg.ID, func() (db.Job, error) {
 		return r.q.RescheduleJob(ctx, arg)
 	})
 }
 
-func (r *JobRepository) guardedUpdate(ctx context.Context, id pgtype.UUID, update func() (db.Job, error)) (db.Job, error) {
+func (r *Repository) guardedUpdate(ctx context.Context, id pgtype.UUID, update func() (db.Job, error)) (db.Job, error) {
 	job, err := update()
 	if err == nil {
 		return job, nil
@@ -126,7 +126,7 @@ func (r *JobRepository) guardedUpdate(ctx context.Context, id pgtype.UUID, updat
 	return db.Job{}, ErrConflict
 }
 
-func (r *JobRepository) ReclaimStale(ctx context.Context, maxDeliveryCount int32) ([]db.Job, error) {
+func (r *Repository) ReclaimStale(ctx context.Context, maxDeliveryCount int32) ([]db.Job, error) {
 	jobs, err := r.q.ReclaimStaleJobs(ctx, maxDeliveryCount)
 	if err != nil {
 		return nil, fmt.Errorf("error reclaim stale jobs: %w", err)
@@ -134,7 +134,7 @@ func (r *JobRepository) ReclaimStale(ctx context.Context, maxDeliveryCount int32
 	return jobs, nil
 }
 
-func (r *JobRepository) SupersedeOpenAttempts(ctx context.Context, jobIDs []pgtype.UUID) error {
+func (r *Repository) SupersedeOpenAttempts(ctx context.Context, jobIDs []pgtype.UUID) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
@@ -144,7 +144,7 @@ func (r *JobRepository) SupersedeOpenAttempts(ctx context.Context, jobIDs []pgty
 	return nil
 }
 
-func (r *JobRepository) ListAttempts(ctx context.Context, jobID pgtype.UUID, limit, offset int32) ([]db.JobAttempt, error) {
+func (r *Repository) ListAttempts(ctx context.Context, jobID pgtype.UUID, limit, offset int32) ([]db.JobAttempt, error) {
 	attempts, err := r.q.GetJobAttemptsByJobId(ctx, db.GetJobAttemptsByJobIdParams{
 		JobID:  jobID,
 		Limit:  limit,
@@ -156,7 +156,7 @@ func (r *JobRepository) ListAttempts(ctx context.Context, jobID pgtype.UUID, lim
 	return attempts, nil
 }
 
-func (r *JobRepository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue int, agingRate float64) ([]db.GetDueJobsRow, error) {
+func (r *Repository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue int, agingRate float64) ([]db.GetDueJobsRow, error) {
 	jobs, err := r.q.GetDueJobs(ctx, db.GetDueJobsParams{
 		MaxFetchPerQueue: int32(maxFetchPerQueue),
 		AgingRate:        agingRate,
@@ -167,7 +167,7 @@ func (r *JobRepository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue 
 	return jobs, nil
 }
 
-func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID, claimDeadline pgtype.Interval) ([]pgtype.UUID, error) {
+func (r *Repository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID, claimDeadline pgtype.Interval) ([]pgtype.UUID, error) {
 	queued, err := r.q.MarkQueued(ctx, db.MarkQueuedParams{Ids: ids, ClaimDeadline: claimDeadline})
 	if err != nil {
 		return nil, fmt.Errorf("mark jobs as queued: %w", err)
@@ -175,7 +175,7 @@ func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID,
 	return queued, nil
 }
 
-func (r *JobRepository) UpdateLostJob(ctx context.Context, result string) ([]pgtype.UUID, error) {
+func (r *Repository) UpdateLostJob(ctx context.Context, result string) ([]pgtype.UUID, error) {
 	lost, err := r.q.UpdateLostJob(ctx, result)
 	if err != nil {
 		return nil, fmt.Errorf("update lost jobs: %w", err)
@@ -183,7 +183,7 @@ func (r *JobRepository) UpdateLostJob(ctx context.Context, result string) ([]pgt
 	return lost, nil
 }
 
-func (r *JobRepository) FinalizeExpiredJobs(ctx context.Context) ([]pgtype.UUID, error) {
+func (r *Repository) FinalizeExpiredJobs(ctx context.Context) ([]pgtype.UUID, error) {
 	expired, err := r.q.FinalizeExpiredJobs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("finalize expired jobs: %w", err)
@@ -191,7 +191,7 @@ func (r *JobRepository) FinalizeExpiredJobs(ctx context.Context) ([]pgtype.UUID,
 	return expired, nil
 }
 
-func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, workerID string, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
+func (r *Repository) ClaimForExecution(ctx context.Context, id pgtype.UUID, workerID string, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
 	// worker_id is nullable only so a lost dispatch can record an attempt with no worker.
 	// A claim always has one, so callers keep passing a plain string.
 	claimed, err := r.q.ClaimJobForExecution(ctx, db.ClaimJobForExecutionParams{
@@ -214,7 +214,7 @@ func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, w
 
 
 
-func (r *JobRepository) RefreshHeartbeats(ctx context.Context, claims []JobClaim, staleDelta pgtype.Interval) ([]pgtype.UUID, error) {
+func (r *Repository) RefreshHeartbeats(ctx context.Context, claims []JobClaim, staleDelta pgtype.Interval) ([]pgtype.UUID, error) {
 	if len(claims) == 0 {
 		return nil, nil
 	}
@@ -235,7 +235,7 @@ func (r *JobRepository) RefreshHeartbeats(ctx context.Context, claims []JobClaim
 	return renewed, nil
 }
 
-func (r *JobRepository) CompleteJob(ctx context.Context, id pgtype.UUID, version int32, nextRunAt pgtype.Timestamptz) (bool, error) {
+func (r *Repository) CompleteJob(ctx context.Context, id pgtype.UUID, version int32, nextRunAt pgtype.Timestamptz) (bool, error) {
 	rows, err := r.q.UpdateJobCompletion(ctx, db.UpdateJobCompletionParams{
 		ID:        id,
 		Version:   version,
@@ -247,7 +247,7 @@ func (r *JobRepository) CompleteJob(ctx context.Context, id pgtype.UUID, version
 	return rows > 0, nil
 }
 
-func (r *JobRepository) RecordExecutionFailure(ctx context.Context, id pgtype.UUID, version int32, nextCheckAt pgtype.Timestamptz) (bool, error) {
+func (r *Repository) RecordExecutionFailure(ctx context.Context, id pgtype.UUID, version int32, nextCheckAt pgtype.Timestamptz) (bool, error) {
 	rows, err := r.q.RecordJobExecutionFailure(ctx, db.RecordJobExecutionFailureParams{
 		ID:          id,
 		Version:     version,
@@ -259,7 +259,7 @@ func (r *JobRepository) RecordExecutionFailure(ctx context.Context, id pgtype.UU
 	return rows > 0, nil
 }
 
-func (r *JobRepository) CompleteAttempt(ctx context.Context, attemptID pgtype.UUID, outcome db.AttemptOutcome, result pgtype.Text) (bool, error) {
+func (r *Repository) CompleteAttempt(ctx context.Context, attemptID pgtype.UUID, outcome db.AttemptOutcome, result pgtype.Text) (bool, error) {
 	rows, err := r.q.UpdateJobAttemptExecutionCompletion(ctx, db.UpdateJobAttemptExecutionCompletionParams{
 		ID:      attemptID,
 		Outcome: outcome,
@@ -281,7 +281,7 @@ type LogLine struct {
 
 const defaultLogLevel = db.LogLevelInfo
 
-func (r *JobRepository) InsertJobLogs(ctx context.Context, lines []LogLine) (int64, error) {
+func (r *Repository) InsertJobLogs(ctx context.Context, lines []LogLine) (int64, error) {
 	if len(lines) == 0 {
 		return 0, nil
 	}
@@ -314,7 +314,7 @@ func (r *JobRepository) InsertJobLogs(ctx context.Context, lines []LogLine) (int
 
 const logQueryPadding = 10 * time.Second
 
-func (r *JobRepository) GetJobAttemptLogs(ctx context.Context, attemptID pgtype.UUID, fromTS, toTS pgtype.Timestamptz, afterSeq, limit int32) ([]db.GetAttemptLogsRow, error) {
+func (r *Repository) GetJobAttemptLogs(ctx context.Context, attemptID pgtype.UUID, fromTS, toTS pgtype.Timestamptz, afterSeq, limit int32) ([]db.GetAttemptLogsRow, error) {
 	if !fromTS.Valid || !toTS.Valid {
 		return nil, fmt.Errorf("get logs for attempt %s: from/to timestamps are required", attemptID)
 	}

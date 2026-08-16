@@ -62,7 +62,7 @@ func run() (err error) {
 		Config:        apiConfig,
 		Queues:        queues,
 		Logger:        logger,
-		JobRepository: job.NewJobRepository(db.New(dbPool)),
+		JobRepository: job.New(db.New(dbPool)),
 	}
 
 	srv := &http.Server{

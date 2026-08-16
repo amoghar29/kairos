@@ -12,7 +12,7 @@ type Application struct {
 	Config        *config.Config
 	Queues        config.Queues
 	Logger        *slog.Logger
-	JobRepository *job.JobRepository
+	JobRepository *job.Repository
 }
 func (app *Application) logger(r *http.Request) *slog.Logger {
 	return app.Logger.With(

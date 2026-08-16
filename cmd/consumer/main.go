@@ -66,7 +66,7 @@ func run() (err error) {
 	})
 	defer rdb.Close()
 
-	jobRepo := job.NewJobRepository(db.New(dbPool))
+	jobRepo := job.New(db.New(dbPool))
 	jobConsumer := consumer.NewJobConsumer(jobRepo, rdb, cfg, logger)
 	jobConsumer.RunConsumer(ctx)
 

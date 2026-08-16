@@ -16,13 +16,13 @@ import (
 )
 
 type JobConsumer struct {
-	jobRepository *job.JobRepository
+	jobRepository *job.Repository
 	rdb           *redis.Client
 	cfg           config.ConsumerConfig
 	logger        *slog.Logger
 }
 
-func NewJobConsumer(jobRepository *job.JobRepository, rdb *redis.Client, cfg config.ConsumerConfig, logger *slog.Logger) *JobConsumer {
+func NewJobConsumer(jobRepository *job.Repository, rdb *redis.Client, cfg config.ConsumerConfig, logger *slog.Logger) *JobConsumer {
 	return &JobConsumer{
 		jobRepository: jobRepository,
 		rdb:           rdb,

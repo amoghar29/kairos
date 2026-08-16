@@ -148,7 +148,7 @@ func (k *Kairos) Run(ctx context.Context, opts RunOptions) error {
 		k.log.Warn("no handlers registered, every claimed job will fail")
 	}
 
-	jobRepo := job.NewJobRepository(db.New(k.pool))
+	jobRepo := job.New(db.New(k.pool))
 	w := worker.NewWorkerService(jobRepo, k.rdb, k.log, k.cfg, opts.Name, opts.Queues, concurrency, k.handlers)
 
 	return w.Run(ctx)

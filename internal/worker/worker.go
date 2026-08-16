@@ -21,7 +21,7 @@ import (
 )
 
 type WorkerService struct {
-	jobRepo     *job.JobRepository
+	jobRepo     *job.Repository
 	rdb         *redis.Client
 	log         *slog.Logger
 	logs        *logSink
@@ -37,7 +37,7 @@ type WorkerService struct {
 	handlers    map[string]HandlerFunc
 }
 
-func NewWorkerService(jobRepo *job.JobRepository, rdb *redis.Client, log *slog.Logger, cfg Config, name string, queues []string, concurrency int, handlers map[string]HandlerFunc) *WorkerService {
+func NewWorkerService(jobRepo *job.Repository, rdb *redis.Client, log *slog.Logger, cfg Config, name string, queues []string, concurrency int, handlers map[string]HandlerFunc) *WorkerService {
 	return &WorkerService{
 		jobRepo:     jobRepo,
 		rdb:         rdb,
