@@ -1,6 +1,7 @@
 package worker
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -86,19 +87,24 @@ func (c Config) StaleDelta() time.Duration {
 	return c.HeartbeatInterval.Std() * time.Duration(c.StaleMultiplier)
 }
 
-func LoadConfig(path string) (Config, error) {
-	if path == "" {
-		return Config{}, errors.New("worker config path must be set")
-	}
+var defaultConfig []byte
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("reading worker config %s: %w", path, err)
+// An empty path means the embedded defaults, so an importing application can start a worker
+// without vendoring a copy of worker.yaml and re-vendoring it every time a key is added.
+// The defaults go through validate() like any file would.
+func LoadConfig(path string) (Config, error) {
+	data, source := defaultConfig, "embedded defaults"
+	if path != "" {
+		read, err := os.ReadFile(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("reading worker config %s: %w", path, err)
+		}
+		data, source = read, path
 	}
 
 	cfg := Config{}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("parsing worker config %s: %w", path, err)
+		return Config{}, fmt.Errorf("parsing worker config %s: %w", source, err)
 	}
 
 	if err := cfg.validate(); err != nil {

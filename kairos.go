@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-
+	"time"
 	"github.com/amoghar29/kairos/internal/config"
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
@@ -16,8 +16,11 @@ import (
 )
 
 type (
-	Job         = worker.Job
-	HandlerFunc = worker.HandlerFunc
+	Job            = worker.Job
+	JobLogger      = worker.JobLogger
+	HandlerFunc    = worker.HandlerFunc
+	RedisConfig    = config.RedisConfig
+	PostgresConfig = config.PostgresConfig
 )
 
 type Config struct {
@@ -41,7 +44,37 @@ type Kairos struct {
 	handlers map[string]HandlerFunc
 }
 
+func (c *Config) applyDefaults() error {
+	if c.PostgresCfg.DSN == "" {
+		return errors.New("PostgresCfg.DSN must be set")
+	}
+	if c.PostgresCfg.MaxConns == 0 {
+		c.PostgresCfg.MaxConns = 10
+		c.PostgresCfg.MinConns = 2
+	}
+	if c.PostgresCfg.MaxConnLifetime == 0 {
+		c.PostgresCfg.MaxConnLifetime = time.Hour
+	}
+	if c.PostgresCfg.MaxConnIdleTime == 0 {
+		c.PostgresCfg.MaxConnIdleTime = 30 * time.Minute
+	}
+	if c.PostgresCfg.HealthCheckPeriod == 0 {
+		c.PostgresCfg.HealthCheckPeriod = time.Minute
+	}
+	if c.RedisCfg.Addr == "" {
+		c.RedisCfg.Addr = "localhost:6379"
+	}
+	if c.RedisCfg.Protocol == 0 {
+		c.RedisCfg.Protocol = 3
+	}
+	return nil
+}
+
 func New(ctx context.Context, cfg Config) (*Kairos, error) {
+	if err := cfg.applyDefaults(); err != nil {
+		return nil, err
+	}
+
 	workerCfg, err := worker.LoadConfig(cfg.WorkerConfigPath)
 	if err != nil {
 		return nil, err

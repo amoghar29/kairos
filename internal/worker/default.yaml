@@ -1,4 +1,4 @@
-database: #todo
+database:
   partitioning:
     interval: monthly        # weekly | monthly | quarterly | half_yearly | yearly
     create_ahead: 6          # intervals kept provisioned ahead of now
@@ -7,20 +7,21 @@ database: #todo
     days: 0                  # 0 = retain forever
 
 concurrency: 3
-brpop_timeout: 1s # BRPOP granularity is one second; go-redis truncates anything smaller and warns each call
-queue_strategy: round_robin # priority = queue order wins always | round_robin = equal turns
 
-retry_backoff_base: 10s 
+brpop_timeout: 1s
+queue_strategy: round_robin  # priority = queue order wins always | round_robin = equal turns
+
+retry_backoff_base: 10s
 retry_backoff_max: 1h
 
-outcome_write_timeout: 5s # 
+outcome_write_timeout: 5s
 shutdown_grace: 30s
 
 heartbeat_interval: 5s
-stale_multiplier: 3 
+stale_multiplier: 3
 registry_interval: 10s
-registry_ttl: 30s 
+registry_ttl: 30s
 log_flush_interval: 1s
 log_flush_timeout: 5s
 log_flush_threshold: 256
-log_buffer_capacity: 4096 
+log_buffer_capacity: 4096

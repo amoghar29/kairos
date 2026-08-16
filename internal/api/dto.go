@@ -147,8 +147,8 @@ func NewJobResponse(j db.Job) JobResponse {
 		Version:        j.Version,
 		NextCheckAt:    timePtr(j.NextCheckAt),
 		IdempotencyKey: stringPtr(j.IdempotencyKey),
-		CreatedAt:      j.CreatedAt.Time,
-		UpdatedAt:      j.UpdatedAt.Time,
+		CreatedAt:      utc(j.CreatedAt),
+		UpdatedAt:      utc(j.UpdatedAt),
 	}
 }
 
@@ -169,7 +169,7 @@ func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
 		WorkerID:   stringPtr(a.WorkerID),
 		Outcome:    string(a.Outcome),
 		Result:     stringPtr(a.Result),
-		StartedAt:  a.StartedAt.Time,
+		StartedAt:  utc(a.StartedAt),
 		FinishedAt: timePtr(a.FinishedAt),
 	}
 }
@@ -249,11 +249,16 @@ func parsePagination(r *http.Request) (Pagination, map[string]string) {
 	return p, fields
 }
 
+func utc(t pgtype.Timestamptz) time.Time {
+	return t.Time.UTC()
+}
+
 func timePtr(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
 		return nil
 	}
-	return &t.Time
+	u := t.Time.UTC()
+	return &u
 }
 
 func stringPtr(t pgtype.Text) *string {
