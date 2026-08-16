@@ -10,23 +10,29 @@ import (
 
 const lostClaimResult = "claim lost while executing: the job was reclaimed or finished elsewhere"
 
+
 type InflightJob struct {
-	Name      string
-	ID        pgtype.UUID
-	AttemptID pgtype.UUID
-	Version   int32
-	Queue     string
-	Handler   string
+	Name      string             `json:"name"`
+	ID        pgtype.UUID        `json:"id"`
+	AttemptID pgtype.UUID        `json:"attempt_id"`
+	Version   int32              `json:"version"`
+	Queue     string             `json:"queue"`
+	Handler   string             `json:"handler"`
+	StartedAt time.Time          `json:"started_at"`
 	Cancel    context.CancelFunc `json:"-"`
 }
 
-type registryEntry struct {
+type RegistryEntry struct {
 	Name      string        `json:"name"`
 	ID        uuid.UUID     `json:"id"`
 	Queues    []string      `json:"queues"`
 	InFlight  []InflightJob `json:"in_flight"`
 	StartedAt time.Time     `json:"started_at"`
 	LastSeen  time.Time     `json:"last_seen"`
+}
+
+func RegistryMatchPattern() string {
+	return registryKeyPrefix + "*"
 }
 
 type Job struct {

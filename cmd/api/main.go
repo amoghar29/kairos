@@ -10,10 +10,12 @@ import (
 
 	"github.com/amoghar29/kairos/internal/api"
 	"github.com/amoghar29/kairos/internal/config"
+	"github.com/amoghar29/kairos/internal/dashboard"
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
 	"github.com/amoghar29/kairos/internal/logging"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -58,11 +60,25 @@ func run() (err error) {
 	defer dbPool.Close()
 	logger.Info("connected to database", slog.Int("max_conns", int(apiConfig.Postgres.MaxConns)))
 
+	redisCfg, err := config.LoadRedisConfig()
+	if err != nil {
+		return fmt.Errorf("load redis config: %w", err)
+	}
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     redisCfg.Addr,
+		Password: redisCfg.Password,
+		DB:       redisCfg.DB,
+		Protocol: redisCfg.Protocol,
+	})
+	defer rdb.Close()
+
+	queries := db.New(dbPool)
 	app := &api.Application{
-		Config:        apiConfig,
-		Queues:        queues,
-		Logger:        logger,
-		JobRepository: job.New(db.New(dbPool)),
+		Config:              apiConfig,
+		Queues:              queues,
+		Logger:              logger,
+		JobRepository:       job.New(queries),
+		DashboardRepository: dashboard.New(queries, rdb),
 	}
 
 	srv := &http.Server{

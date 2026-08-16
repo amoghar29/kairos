@@ -524,18 +524,41 @@ func (q *Queries) InsertJobLogs(ctx context.Context, arg InsertJobLogsParams) (i
 
 const listJobs = `-- name: ListJobs :many
 SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, next_run_at, created_at, updated_at FROM jobs
-ORDER BY created_at DESC, id DESC
-LIMIT $1 OFFSET $2
+WHERE (cardinality($1::text[]) = 0 OR state::text = ANY($1::text[]))
+  AND ($2::text     IS NULL OR queue = $2::text)
+  AND ($3::text   IS NULL OR handler = $3::text)
+  AND ($4::job_type IS NULL OR job_type = $4::job_type)
+  AND ($5::text    IS NULL
+       OR name ILIKE '%' || $5::text || '%'
+       OR handler ILIKE '%' || $5::text || '%'
+       OR id::text ILIKE '%' || $5::text || '%')
+ORDER BY updated_at DESC, id DESC
+LIMIT $7 OFFSET $6
 `
 
 type ListJobsParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+	States     []string    `json:"states"`
+	Queue      pgtype.Text `json:"queue"`
+	Handler    pgtype.Text `json:"handler"`
+	JobType    NullJobType `json:"job_type"`
+	Search     pgtype.Text `json:"search"`
+	PageOffset int32       `json:"page_offset"`
+	PageLimit  int32       `json:"page_limit"`
 }
 
 // Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
+// States arrive as text[], not job_state[]: pgx has no encode plan for an enum array unless
+// the type is registered on every connection. The API validates each value before it gets here.
 func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error) {
-	rows, err := q.db.Query(ctx, listJobs, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listJobs,
+		arg.States,
+		arg.Queue,
+		arg.Handler,
+		arg.JobType,
+		arg.Search,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

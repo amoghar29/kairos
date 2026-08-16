@@ -24,6 +24,12 @@ func (app *Application) Routes() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
 			r.Get("/healthz", app.Healthcheck)
+			r.Get("/queues", app.ListQueues)
+			r.Get("/workers", app.ListWorkers)
+			r.Route("/handlers", func(r chi.Router) {
+				r.Get("/", app.ListHandlers)
+				r.Get("/{name}", app.GetHandler)
+			})
 			r.Route("/jobs", func(r chi.Router) {
 				r.Post("/", app.CreateJob)
 				r.Get("/", app.ListJobs)
@@ -34,6 +40,7 @@ func (app *Application) Routes() http.Handler {
 					r.Post("/cancel", app.CancelJob)
 					r.Post("/rerun", app.RerunJob)
 					r.Post("/pause", app.PauseJob)
+					r.Post("/schedule", app.RescheduleJob)
 					r.Post("/reschedule", app.RescheduleJob)
 					r.Get("/attempts", app.ListJobAttempts)
 				})

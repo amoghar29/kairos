@@ -62,8 +62,10 @@ func (w *WorkerService) identity() string {
 	return fmt.Sprintf("%s:%s", w.name, w.id)
 }
 
+const registryKeyPrefix = "kairos:worker:"
+
 func (w *WorkerService) registryKey() string {
-	return fmt.Sprintf("kairos:worker:%s", w.identity())
+	return registryKeyPrefix + w.identity()
 }
 
 func (w *WorkerService) staleDelta() pgtype.Interval {
@@ -109,7 +111,7 @@ func (w *WorkerService) publishRegistry(ctx context.Context) error {
 	}
 
 	w.mu.RUnlock()
-	payload, err := json.Marshal((registryEntry{
+	payload, err := json.Marshal((RegistryEntry{
 		Name:      w.name,
 		ID:        w.id,
 		Queues:    w.queues,
@@ -273,6 +275,7 @@ func (w *WorkerService) executeJob(ctx context.Context, jobID pgtype.UUID) {
 		Version:   claimed.Version,
 		Queue:     claimed.Queue,
 		Handler:   claimed.Handler,
+		StartedAt: time.Now().UTC(),
 		Cancel:    cancel,
 	})
 	defer w.untrackJob(claimed.ID)

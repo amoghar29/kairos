@@ -133,42 +133,6 @@ a:hover{color:var(--color-accent-700)}
           </div>
         </sc-if>
 
-        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
-          <h2 style="font-family:var(--font-heading);font-size:14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:0">Last 24 hours</h2>
-          <span style="font-size:11px;color:var(--k-muted)">counted from job attempts · GET /stats?window=24h</span>
-        </div>
-        <div class="blueprint" style="padding:14px 20px 13px;margin-bottom:30px;display:flex;gap:44px;flex-wrap:wrap;max-width:1300px">
-          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-          <div>
-            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">completed</div>
-            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statSucceeded }}</div>
-          </div>
-          <div>
-            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">failed attempts</div>
-            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums;{{ statFailedColor }}">{{ statFailed }}</div>
-          </div>
-          <div>
-            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead</div>
-            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums;{{ statDeadColor }}">{{ statDead }}</div>
-          </div>
-          <div>
-            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">cancelled</div>
-            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statCancelled }}</div>
-          </div>
-          <div>
-            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">retries</div>
-            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statRetries }}</div>
-          </div>
-          <div>
-            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">success rate</div>
-            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statRate }}</div>
-          </div>
-          <div>
-            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">avg run</div>
-            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statAvgRun }}</div>
-          </div>
-          <div style="margin-left:auto;align-self:center;font-size:11px;color:var(--k-muted);max-width:210px;line-height:1.45">An attempt is one delivery to a worker; a job with three retries counts three attempts here.</div>
-        </div>
 
         <sc-if value="{{ hasStalled }}" hint-placeholder-val="{{ false }}">
           <div style="max-width:900px;margin-bottom:30px">
@@ -213,14 +177,14 @@ a:hover{color:var(--color-accent-700)}
                 <table class="k-t">
                   <thead><tr><th>job</th><th>handler</th><th class="k-num">retries</th><th class="k-num">died</th></tr></thead>
                   <tbody>
-                    <sc-for list="{{ deadRows }}" as="d" hint-placeholder-count="4">
-                      <tr class="k-click" onClick="{{ d.onOpen }}">
+                    
+                      <tr sc-for="{{ deadRows }}" sc-as="d" class="k-click" onClick="{{ d.onOpen }}">
                         <td style="font-family:var(--font-heading);font-weight:600">{{ d.name }}<div style="font-weight:400;font-size:11px;color:var(--k-muted)">{{ d.queue }}</div></td>
                         <td class="k-mono" style="color:var(--k-text2)">{{ d.handler }}</td>
                         <td class="k-num" style="color:var(--k-crit-fg);font-weight:600">{{ d.retry_count }}</td>
                         <td class="k-num" style="color:var(--k-muted)" title="{{ d.updatedAbs }}">{{ d.updatedRel }}</td>
                       </tr>
-                    </sc-for>
+                    
                   </tbody>
                 </table>
               </div>
@@ -277,8 +241,8 @@ a:hover{color:var(--color-accent-700)}
                 <th style="width:180px">oldest pending age</th>
               </tr></thead>
               <tbody>
-                <sc-for list="{{ queueRows }}" as="row" hint-placeholder-count="5">
-                  <tr class="k-click" onClick="{{ row.onOpen }}" tabIndex="{{ 0 }}" onKeyDown="{{ row.onKey }}" title="Open /jobs filtered to this queue">
+                
+                  <tr sc-for="{{ queueRows }}" sc-as="row" class="k-click" onClick="{{ row.onOpen }}" tabIndex="{{ 0 }}" onKeyDown="{{ row.onKey }}" title="Open /jobs filtered to this queue">
                     <td style="font-family:var(--font-heading);font-weight:600;font-size:15px;letter-spacing:.02em">
                       <div>{{ row.queue }}</div>
                       <sc-if value="{{ row.isDead }}" hint-placeholder-val="{{ false }}">
@@ -302,7 +266,7 @@ a:hover{color:var(--color-accent-700)}
                     <td class="k-num" style="color:var(--k-muted)">{{ row.redis_buffered }}</td>
                     <td><span style="{{ row.ageStyle }}">{{ row.ageLabel }}</span></td>
                   </tr>
-                </sc-for>
+                
               </tbody>
             </table>
           </div>
@@ -339,17 +303,17 @@ a:hover{color:var(--color-accent-700)}
           <div>
             <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">queue · single</div>
             <select class="input" style="width:170px;min-height:30px;font-size:13px" value="{{ queueValue }}" onChange="{{ onQueueChange }}">
-              <sc-for list="{{ queueOptions }}" as="opt" hint-placeholder-count="4">
-                <option value="{{ opt.value }}">{{ opt.label }}</option>
-              </sc-for>
+              
+                <option sc-for="{{ queueOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
+              
             </select>
           </div>
           <div>
             <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">handler · single</div>
             <select class="input k-mono" style="width:180px;min-height:30px;font-size:12.5px" value="{{ handlerValue }}" onChange="{{ onHandlerChange }}">
-              <sc-for list="{{ handlerOptions }}" as="opt" hint-placeholder-count="4">
-                <option value="{{ opt.value }}">{{ opt.label }}</option>
-              </sc-for>
+              
+                <option sc-for="{{ handlerOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
+              
             </select>
           </div>
           <div>
@@ -408,8 +372,8 @@ a:hover{color:var(--color-accent-700)}
                   <th class="k-num" style="cursor:pointer" onClick="{{ onSortCreated }}">created{{ sortArrowCreated }}</th>
                   <th class="k-num" style="cursor:pointer" onClick="{{ onSortUpdated }}">updated{{ sortArrowUpdated }}</th>
                 </tr></thead>
-                <tbody>
-                  <sc-for list="{{ jobRows }}" as="row" hint-placeholder-count="12">
+                <tbody sc-for="{{ jobRows }}" sc-as="row">
+                  
                     <tr>
                       <td>
                         <button class="btn btn-ghost" style="padding:0;font-size:11px;width:20px;height:20px;min-height:0" onClick="{{ row.onToggleExpand }}" title="Show attempts">{{ row.expandArrow }}</button>
@@ -430,8 +394,8 @@ a:hover{color:var(--color-accent-700)}
                       <td class="k-num" style="color:var(--k-text2)" title="{{ row.createdAbs }}">{{ row.createdRel }}</td>
                       <td class="k-num" style="color:var(--k-text2)" title="{{ row.updatedAbs }}">{{ row.updatedRel }}</td>
                     </tr>
-                    <sc-if value="{{ row.expanded }}" hint-placeholder-val="{{ false }}">
-                      <tr>
+                    
+                      <tr sc-if="{{ row.expanded }}">
                         <td colspan="12" style="background:var(--color-surface);padding:10px 14px 14px 40px">
                           <div style="font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">attempts for {{ row.idShort }} — click a row for full detail</div>
                           <sc-if value="{{ row.attemptsLoading }}" hint-placeholder-val="{{ false }}">
@@ -451,8 +415,8 @@ a:hover{color:var(--color-accent-700)}
                                 <th class="k-num" style="width:70px">duration</th>
                               </tr></thead>
                               <tbody>
-                                <sc-for list="{{ row.attemptsRows }}" as="a" hint-placeholder-count="3">
-                                  <tr class="k-click" onClick="{{ a.onOpen }}" title="Open full job detail">
+                                
+                                  <tr sc-for="{{ row.attemptsRows }}" sc-as="a" class="k-click" onClick="{{ a.onOpen }}" title="Open full job detail">
                                     <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
                                     <td class="k-mono" style="white-space:nowrap" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
                                     <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
@@ -460,15 +424,15 @@ a:hover{color:var(--color-accent-700)}
                                     <td class="k-num" style="color:var(--k-text2)">{{ a.startedRel }}</td>
                                     <td class="k-num">{{ a.duration }}</td>
                                   </tr>
-                                </sc-for>
+                                
                               </tbody>
                             </table>
                             <div style="margin-top:6px"><a href="{{ row.href }}" style="font-size:11.5px;text-decoration:none">open full job detail →</a></div>
                           </sc-if>
                         </td>
                       </tr>
-                    </sc-if>
-                  </sc-for>
+                    
+                  
                 </tbody>
               </table>
             </div>
@@ -564,7 +528,7 @@ a:hover{color:var(--color-accent-700)}
                   <div style="flex:1;min-width:300px;display:flex;flex-direction:column;gap:13px">
                     <div class="field"><label>cron expression · 5 fields, UTC</label>
                       <select class="input" style="margin-bottom:6px" value="{{ schedForm.preset }}" onChange="{{ onSchedPreset }}">
-                        <sc-for list="{{ cronPresetOptions }}" as="p" hint-placeholder-count="7"><option value="{{ p.value }}">{{ p.label }}</option></sc-for>
+                        <option sc-for="{{ cronPresetOptions }}" sc-as="p" value="{{ p.value }}">{{ p.label }}</option>
                       </select>
                       <input class="input k-mono" style="font-size:12.5px" value="{{ schedForm.cron }}" onChange="{{ onSchedCron }}" placeholder="*/5 * * * *">
                       <sc-if value="{{ schedCronError }}" hint-placeholder-val="{{ false }}">
@@ -676,9 +640,9 @@ a:hover{color:var(--color-accent-700)}
                   <h2 style="font-size:19px;margin:0">Attempts</h2>
                   <span style="font-size:11px;color:var(--k-muted)">{{ attemptsCount }} · ordered by attempt_no asc</span>
                   <select class="input" style="margin-left:auto;width:150px;min-height:28px;font-size:12.5px" value="{{ attemptsFilter }}" onChange="{{ onAttemptsFilterChange }}">
-                    <sc-for list="{{ attemptsFilterOptions }}" as="opt" hint-placeholder-count="3">
-                      <option value="{{ opt.value }}">{{ opt.label }}</option>
-                    </sc-for>
+                    
+                      <option sc-for="{{ attemptsFilterOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
+                    
                   </select>
                 </div>
                 <sc-if value="{{ attemptsEmpty }}" hint-placeholder-val="{{ false }}">
@@ -702,8 +666,8 @@ a:hover{color:var(--color-accent-700)}
                           <th class="k-num" style="width:74px">duration</th>
                         </tr></thead>
                         <tbody>
-                          <sc-for list="{{ attemptRows }}" as="a" hint-placeholder-count="6">
-                            <tr>
+                          
+                            <tr sc-for="{{ attemptRows }}" sc-as="a">
                               <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
                               <td class="k-mono" style="white-space:nowrap" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
                               <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
@@ -717,7 +681,7 @@ a:hover{color:var(--color-accent-700)}
                               <td class="k-num" style="color:var(--k-text2)" title="{{ a.finishedAbs }}">{{ a.finishedRel }}</td>
                               <td class="k-num">{{ a.duration }}</td>
                             </tr>
-                          </sc-for>
+                          
                         </tbody>
                       </table>
                     </div>
@@ -768,8 +732,8 @@ a:hover{color:var(--color-accent-700)}
                 <th style="width:96px"></th>
               </tr></thead>
               <tbody>
-                <sc-for list="{{ schedRows }}" as="sr" hint-placeholder-count="6">
-                  <tr class="k-click" onClick="{{ sr.onOpen }}" title="Open job detail">
+                
+                  <tr sc-for="{{ schedRows }}" sc-as="sr" class="k-click" onClick="{{ sr.onOpen }}" title="Open job detail">
                     <td style="font-family:var(--font-heading);font-weight:600;font-size:14.5px">{{ sr.name }}<div class="k-mono" style="font-weight:400;font-size:11px;color:var(--k-muted)">{{ sr.handler }}</div></td>
                     <td class="k-mono" style="font-size:12px;color:var(--k-warn-fg);white-space:nowrap"><div style="white-space:nowrap">{{ sr.cron_expr }}</div><div style="font-family:var(--font-body);font-size:10.5px;color:var(--k-muted);white-space:normal">{{ sr.human }}</div></td>
                     <td style="color:var(--k-text2)">{{ sr.queue }}</td>
@@ -787,7 +751,7 @@ a:hover{color:var(--color-accent-700)}
                       </sc-if>
                     </td>
                   </tr>
-                </sc-for>
+                
               </tbody>
             </table>
           </div>
@@ -862,13 +826,13 @@ a:hover{color:var(--color-accent-700)}
                     <table class="k-t">
                       <thead><tr><th>state</th><th class="k-num" style="width:70px">jobs</th><th class="k-num" style="width:64px">share</th></tr></thead>
                       <tbody>
-                        <sc-for list="{{ hd.stateRows }}" as="st" hint-placeholder-count="7">
-                          <tr>
+                        
+                          <tr sc-for="{{ hd.stateRows }}" sc-as="st">
                             <td><span style="{{ st.badgeStyle }}">{{ st.state }}</span></td>
                             <td class="k-num">{{ st.count }}</td>
                             <td class="k-num" style="color:var(--k-muted)">{{ st.share }}</td>
                           </tr>
-                        </sc-for>
+                        
                       </tbody>
                     </table>
                   </div>
@@ -890,8 +854,8 @@ a:hover{color:var(--color-accent-700)}
                             <th class="k-num" style="width:82px">updated</th>
                           </tr></thead>
                           <tbody>
-                            <sc-for list="{{ hd.recentRows }}" as="row" hint-placeholder-count="10">
-                              <tr class="k-click" onClick="{{ row.onOpen }}" title="Open job detail">
+                            
+                              <tr sc-for="{{ hd.recentRows }}" sc-as="row" class="k-click" onClick="{{ row.onOpen }}" title="Open job detail">
                                 <td class="k-mono">{{ row.idShort }}</td>
                                 <td style="font-family:var(--font-heading);font-weight:600;font-size:14px">{{ row.name }}</td>
                                 <td style="color:var(--k-text2)">{{ row.queue }}</td>
@@ -899,7 +863,7 @@ a:hover{color:var(--color-accent-700)}
                                 <td class="k-num" style="{{ row.retryStyle }}">{{ row.retry_count }}</td>
                                 <td class="k-num" style="color:var(--k-text2)" title="{{ row.updatedAbs }}">{{ row.updatedRel }}</td>
                               </tr>
-                            </sc-for>
+                            
                           </tbody>
                         </table>
                       </div>
@@ -977,8 +941,8 @@ a:hover{color:var(--color-accent-700)}
                     <th class="k-num" style="width:74px">last activity</th>
                   </tr></thead>
                   <tbody>
-                    <sc-for list="{{ handlerRows }}" as="h" hint-placeholder-count="8">
-                      <tr class="k-click" onClick="{{ h.onOpen }}" tabIndex="{{ 0 }}" onKeyDown="{{ h.onKey }}" title="Open handler detail">
+                    
+                      <tr sc-for="{{ handlerRows }}" sc-as="h" class="k-click" onClick="{{ h.onOpen }}" tabIndex="{{ 0 }}" onKeyDown="{{ h.onKey }}" title="Open handler detail">
                         <td>
                           <div class="k-mono" style="font-size:13px;color:var(--color-text)">{{ h.handler }}</div>
                           <sc-if value="{{ h.unhealthy }}" hint-placeholder-val="{{ false }}">
@@ -1004,7 +968,7 @@ a:hover{color:var(--color-accent-700)}
                         <td class="k-num" style="color:var(--k-text2)">{{ h.avgRun }}</td>
                         <td class="k-num" style="color:var(--k-text2)" title="{{ h.lastAbs }}">{{ h.lastRel }}</td>
                       </tr>
-                    </sc-for>
+                    
                   </tbody>
                 </table>
               </div>
@@ -1062,22 +1026,18 @@ a:hover{color:var(--color-accent-700)}
                         <th>job</th>
                         <th>handler</th>
                         <th style="width:110px">queue</th>
-                        <th class="k-num" style="width:46px">prio</th>
-                        <th class="k-num" style="width:56px">attempt</th>
                         <th class="k-num" style="width:100px">running for</th>
                       </tr></thead>
                       <tbody>
-                        <sc-for list="{{ workerRunningRows }}" as="rj" hint-placeholder-count="2">
-                          <tr class="k-click" onClick="{{ rj.onOpen }}" title="Open job detail">
+                        
+                          <tr sc-for="{{ workerRunningRows }}" sc-as="rj" class="k-click" onClick="{{ rj.onOpen }}" title="Open job detail">
                             <td class="k-mono">{{ rj.idShort }}</td>
                             <td style="font-family:var(--font-heading);font-weight:600;font-size:14.5px">{{ rj.name }}</td>
                             <td class="k-mono" style="color:var(--k-text2)">{{ rj.handler }}</td>
                             <td style="color:var(--k-text2)">{{ rj.queue }}</td>
-                            <td class="k-num">{{ rj.priority }}</td>
-                            <td class="k-num" style="color:var(--k-muted)">{{ rj.attempt_no }}</td>
                             <td class="k-num" style="{{ rj.elapsedStyle }}">{{ rj.elapsed }}</td>
                           </tr>
-                        </sc-for>
+                        
                       </tbody>
                     </table>
                   </div>
@@ -1100,22 +1060,20 @@ a:hover{color:var(--color-accent-700)}
                         <thead><tr>
                           <th>job</th>
                           <th>queue</th>
-                          <th class="k-num" style="width:40px">attempt</th>
                           <th style="width:104px">outcome</th>
                           <th class="k-num" style="width:86px">started</th>
                           <th class="k-num" style="width:78px">duration</th>
                         </tr></thead>
                         <tbody>
-                          <sc-for list="{{ workerActivityRows }}" as="a" hint-placeholder-count="8">
-                            <tr class="k-click" onClick="{{ a.onOpen }}" title="Open job detail">
+                          
+                            <tr sc-for="{{ workerActivityRows }}" sc-as="a" class="k-click" onClick="{{ a.onOpen }}" title="Open job detail">
                               <td style="font-family:var(--font-heading);font-weight:600;font-size:14px">{{ a.job_name }}</td>
                               <td style="color:var(--k-text2)">{{ a.queue }}</td>
-                              <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
                               <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
                               <td class="k-num" style="color:var(--k-text2)" title="{{ a.startedAbs }}">{{ a.startedRel }}</td>
                               <td class="k-num">{{ a.duration }}</td>
                             </tr>
-                          </sc-for>
+                          
                         </tbody>
                       </table>
                     </div>
@@ -1165,8 +1123,8 @@ a:hover{color:var(--color-accent-700)}
                 <th class="k-num" style="width:120px">last_seen</th>
                 <th class="k-num" style="width:120px">uptime</th>
               </tr></thead>
-              <tbody>
-                <sc-for list="{{ workerRows }}" as="w" hint-placeholder-count="6">
+              <tbody sc-for="{{ workerRows }}" sc-as="w">
+                
                   <tr class="k-click" onClick="{{ w.onOpen }}" title="Open worker detail">
                     <td style="font-family:var(--font-heading);font-weight:600;font-size:14.5px">{{ w.name }}</td>
                     <td class="k-mono" style="font-size:12px;color:var(--k-text2)">{{ w.id }}</td>
@@ -1193,8 +1151,8 @@ a:hover{color:var(--color-accent-700)}
                     <td class="k-num" style="color:var(--k-text2)" title="{{ w.lastSeenAbs }}">{{ w.lastSeenRel }}</td>
                     <td class="k-num" style="color:var(--k-text2)" title="{{ w.startedAbs }}">{{ w.uptime }}</td>
                   </tr>
-                  <sc-if value="{{ w.expanded }}" hint-placeholder-val="{{ false }}">
-                    <tr>
+                  
+                    <tr sc-if="{{ w.expanded }}">
                       <td colspan="7" style="background:var(--color-surface);padding:8px 14px 12px 14px">
                         <div style="font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">in flight on {{ w.name }} — click a job to open it</div>
                         <table class="k-t" style="background:transparent">
@@ -1203,28 +1161,24 @@ a:hover{color:var(--color-accent-700)}
                             <th>job</th>
                             <th>handler</th>
                             <th style="width:104px">queue</th>
-                            <th class="k-num" style="width:46px">prio</th>
-                            <th class="k-num" style="width:56px">attempt</th>
                             <th class="k-num" style="width:96px">running for</th>
                           </tr></thead>
                           <tbody>
-                            <sc-for list="{{ w.running }}" as="rj" hint-placeholder-count="2">
-                              <tr class="k-click" onClick="{{ rj.onOpen }}" title="Open job detail">
+                            
+                              <tr sc-for="{{ w.running }}" sc-as="rj" class="k-click" onClick="{{ rj.onOpen }}" title="Open job detail">
                                 <td class="k-mono">{{ rj.idShort }}</td>
                                 <td style="font-family:var(--font-heading);font-weight:600;font-size:14px">{{ rj.name }}</td>
                                 <td class="k-mono" style="color:var(--k-text2)">{{ rj.handler }}</td>
                                 <td style="color:var(--k-text2)">{{ rj.queue }}</td>
-                                <td class="k-num">{{ rj.priority }}</td>
-                                <td class="k-num" style="color:var(--k-muted)">{{ rj.attempt_no }}</td>
                                 <td class="k-num" style="{{ rj.elapsedStyle }}">{{ rj.elapsed }}</td>
                               </tr>
-                            </sc-for>
+                            
                           </tbody>
                         </table>
                       </td>
                     </tr>
-                  </sc-if>
-                </sc-for>
+                  
+                
               </tbody>
             </table>
           </div>
@@ -1248,13 +1202,13 @@ a:hover{color:var(--color-accent-700)}
               <div class="field"><label>name</label><input class="input" value="{{ form.name }}" onChange="{{ onFormName }}" placeholder="send_email"></div>
               <div class="field"><label>queue</label>
                 <select class="input" value="{{ form.queue }}" onChange="{{ onFormQueue }}">
-                  <sc-for list="{{ formQueueOptions }}" as="q" hint-placeholder-count="4"><option value="{{ q }}">{{ q }}</option></sc-for>
+                  <option sc-for="{{ formQueueOptions }}" sc-as="q" value="{{ q }}">{{ q }}</option>
                 </select>
               </div>
               <div class="field"><label>handler — required, must not be empty</label>
                 <input class="input k-mono" style="font-size:12.5px" value="{{ form.handler }}" onChange="{{ onFormHandler }}" placeholder="email.send" list="kairos-handlers">
                 <datalist id="kairos-handlers">
-                  <sc-for list="{{ formHandlerOptions }}" as="h" hint-placeholder-count="4"><option value="{{ h }}"></option></sc-for>
+                  <option sc-for="{{ formHandlerOptions }}" sc-as="h" value="{{ h }}"></option>
                 </datalist>
               </div>
               <div class="field"><label>priority — 1 is highest, 10 lowest (default 5)</label>
@@ -1271,7 +1225,7 @@ a:hover{color:var(--color-accent-700)}
                 <div style="display:flex;flex-direction:column;gap:13px">
                   <div class="field"><label>cron expression · 5 fields, UTC</label>
                     <select class="input" style="margin-bottom:6px" value="{{ form.cronPreset }}" onChange="{{ onFormCronPreset }}">
-                      <sc-for list="{{ cronPresetOptions }}" as="p" hint-placeholder-count="6"><option value="{{ p.value }}">{{ p.label }}</option></sc-for>
+                      <option sc-for="{{ cronPresetOptions }}" sc-as="p" value="{{ p.value }}">{{ p.label }}</option>
                     </select>
                     <input class="input k-mono" style="font-size:12.5px" value="{{ form.cron }}" onChange="{{ onFormCron }}" placeholder="*/5 * * * *">
                     <sc-if value="{{ cronError }}" hint-placeholder-val="{{ false }}">
@@ -1295,9 +1249,6 @@ a:hover{color:var(--color-accent-700)}
                 <sc-if value="{{ payloadError }}" hint-placeholder-val="{{ false }}">
                   <div style="font-size:11.5px;color:var(--k-crit-fg);margin-top:5px">{{ payloadError }}</div>
                 </sc-if>
-              </div>
-              <div class="field"><label>Idempotency-Key · optional header</label>
-                <input class="input k-mono" style="font-size:12.5px" value="{{ form.idem }}" onChange="{{ onFormIdem }}" placeholder="leave blank to omit the header">
               </div>
               <div style="display:flex;align-items:center;gap:12px">
                 <button class="btn btn-primary" onClick="{{ onSubmit }}" disabled="{{ submitting }}">{{ submitLabel }}</button>

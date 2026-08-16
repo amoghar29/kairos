@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
 	"github.com/amoghar29/kairos/internal/config"
 	"github.com/amoghar29/kairos/internal/cron"
+	"github.com/amoghar29/kairos/internal/dashboard"
 	"github.com/amoghar29/kairos/internal/db"
+	"github.com/amoghar29/kairos/internal/worker"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -29,7 +32,6 @@ type CreateJobRequest struct {
 	Payload        json.RawMessage `json:"payload"`
 	Priority       *int32          `json:"priority"`
 	MaxRetries     *int32          `json:"max_retries"`
-	IdempotencyKey string          `json:"idempotency_key"`
 	Cron           string          `json:"cron"`
 	StartsAt       *time.Time      `json:"starts_at"`
 	EndsAt         *time.Time      `json:"ends_at"`
@@ -46,7 +48,7 @@ func validateSchedule(cronExpr string, startsAt, endsAt *time.Time) map[string]s
 		if startsAt == nil {
 			fields["starts_at"] = "must be provided for a cron job"
 		}
-	} else if startsAt != nil { 
+	} else if startsAt != nil {
 		fields["starts_at"] = "requires cron — an adhoc job runs as soon as it is picked up"
 	}
 
@@ -76,7 +78,9 @@ func timestamptz(t *time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }
 
-func (r *CreateJobRequest) Validate(queues config.Queues) map[string]string {
+// idempotencyKey comes from the Idempotency-Key header, not the body, so it is validated
+// alongside the body fields rather than on its own.
+func (r *CreateJobRequest) Validate(queues config.Queues, idempotencyKey string) map[string]string {
 	fields := map[string]string{}
 
 	switch {
@@ -108,8 +112,8 @@ func (r *CreateJobRequest) Validate(queues config.Queues) map[string]string {
 		fields["max_retries"] = fmt.Sprintf("must be between %d and %d", minMaxRetries, maxMaxRetries)
 	}
 
-	if len(r.IdempotencyKey) > 255 {
-		fields["idempotency_key"] = "must not exceed 255 characters"
+	if len(idempotencyKey) > 255 {
+		fields["Idempotency-Key"] = "header must not exceed 255 characters"
 	}
 
 	if len(r.Payload) > 0 && !json.Valid(r.Payload) {
@@ -126,8 +130,7 @@ func (r *CreateJobRequest) Validate(queues config.Queues) map[string]string {
 	return fields
 }
 
-
-func (r *CreateJobRequest) ToParams() db.CreateJobParams {
+func (r *CreateJobRequest) ToParams(idempotencyKey string) db.CreateJobParams {
 	priority := int32(defaultPriority)
 	if r.Priority != nil {
 		priority = *r.Priority
@@ -150,7 +153,7 @@ func (r *CreateJobRequest) ToParams() db.CreateJobParams {
 		Payload:        payload,
 		Priority:       priority,
 		MaxRetries:     maxRetries,
-		IdempotencyKey: pgtype.Text{String: r.IdempotencyKey, Valid: r.IdempotencyKey != ""},
+		IdempotencyKey: pgtype.Text{String: idempotencyKey, Valid: idempotencyKey != ""},
 		JobType:        db.JobTypeAdhoc,
 		StartsAt:       timestamptz(r.StartsAt),
 		EndsAt:         timestamptz(r.EndsAt),
@@ -245,6 +248,7 @@ type JobResponse struct {
 	ID             string          `json:"id"`
 	Name           string          `json:"name"`
 	Queue          string          `json:"queue"`
+	Handler        string          `json:"handler"`
 	State          string          `json:"state"`
 	Payload        json.RawMessage `json:"payload"`
 	Priority       int32           `json:"priority"`
@@ -268,6 +272,7 @@ func NewJobResponse(j db.Job) JobResponse {
 		ID:             j.ID.String(),
 		Name:           j.Name,
 		Queue:          j.Queue,
+		Handler:        j.Handler,
 		State:          string(j.State),
 		Payload:        json.RawMessage(j.Payload),
 		Priority:       j.Priority,
@@ -309,7 +314,6 @@ func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
 	}
 }
 
-
 type PaginationResponse struct {
 	Limit   int32 `json:"limit"`
 	Offset  int32 `json:"offset"`
@@ -346,13 +350,70 @@ func splitPage[T any](rows []T, p Pagination) ([]T, PaginationResponse) {
 const (
 	defaultLimit = 20
 	maxLimit     = 100
+
+	handlerRecentJobs = 20
 )
 
-func (p Pagination) toListJobsParams() db.ListJobsParams {
-	return db.ListJobsParams{
-		Limit:  p.fetchLimit(),
-		Offset: p.Offset,
+type JobFilter struct {
+	States  []db.JobState
+	Queue   string
+	Handler string
+	JobType string
+	Search  string
+}
+
+func (f JobFilter) toListJobsParams(p Pagination) db.ListJobsParams {
+	states := make([]string, 0, len(f.States))
+	for _, s := range f.States {
+		states = append(states, string(s))
 	}
+	arg := db.ListJobsParams{
+		States:     states,
+		Queue:      pgtype.Text{String: f.Queue, Valid: f.Queue != ""},
+		Handler:    pgtype.Text{String: f.Handler, Valid: f.Handler != ""},
+		Search:     pgtype.Text{String: f.Search, Valid: f.Search != ""},
+		PageLimit:  p.fetchLimit(),
+		PageOffset: p.Offset,
+	}
+	if f.JobType != "" {
+		arg.JobType = db.NullJobType{JobType: db.JobType(f.JobType), Valid: true}
+	}
+	return arg
+}
+
+func parseJobFilter(r *http.Request) (JobFilter, map[string]string) {
+	q := r.URL.Query()
+	fields := map[string]string{}
+	f := JobFilter{
+		Queue:   q.Get("queue"),
+		Handler: q.Get("handler"),
+		Search:  q.Get("q"),
+	}
+
+	for _, raw := range q["state"] {
+		if raw == "" {
+			continue
+		}
+		state := db.JobState(raw)
+		if !state.Valid() {
+			fields["state"] = fmt.Sprintf("unknown state %q", raw)
+			continue
+		}
+		f.States = append(f.States, state)
+	}
+
+	if raw := q.Get("job_type"); raw != "" {
+		if !db.JobType(raw).Valid() {
+			fields["job_type"] = fmt.Sprintf("unknown job_type %q", raw)
+		} else {
+			f.JobType = raw
+		}
+	}
+
+	if len(fields) == 0 {
+		return f, nil
+	}
+	return f, fields
 }
 
 func parsePagination(r *http.Request) (Pagination, map[string]string) {
@@ -401,4 +462,61 @@ func stringPtr(t pgtype.Text) *string {
 		return nil
 	}
 	return &t.String
+}
+
+type InflightJobResponse struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Queue     string    `json:"queue"`
+	Handler   string    `json:"handler"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+type WorkerResponse struct {
+	ID           string                `json:"id"`
+	Name         string                `json:"name"`
+	Queues       []string              `json:"queues"`
+	InFlight     int                   `json:"in_flight"`
+	InFlightJobs []InflightJobResponse `json:"in_flight_jobs"`
+	StartedAt    time.Time             `json:"started_at"`
+	LastSeen     time.Time             `json:"last_seen"`
+}
+
+type WorkerListResponse struct {
+	Workers []WorkerResponse `json:"workers"`
+}
+
+func NewWorkerResponse(e worker.RegistryEntry) WorkerResponse {
+	jobs := make([]InflightJobResponse, 0, len(e.InFlight))
+	for _, j := range e.InFlight {
+		jobs = append(jobs, InflightJobResponse{
+			ID:        j.ID.String(),
+			Name:      j.Name,
+			Queue:     j.Queue,
+			Handler:   j.Handler,
+			StartedAt: j.StartedAt.UTC(),
+		})
+	}
+	queues := e.Queues
+	if queues == nil {
+		queues = []string{}
+	}
+	return WorkerResponse{
+		ID:           e.ID.String(),
+		Name:         e.Name,
+		Queues:       queues,
+		InFlight:     len(e.InFlight),
+		InFlightJobs: jobs,
+		StartedAt:    e.StartedAt.UTC(),
+		LastSeen:     e.LastSeen.UTC(),
+	}
+}
+
+type HandlerListResponse struct {
+	Handlers []dashboard.HandlerStat `json:"handlers"`
+}
+
+type HandlerDetailResponse struct {
+	Handler dashboard.HandlerStat `json:"handler"`
+	Jobs    []JobResponse         `json:"jobs"`
 }

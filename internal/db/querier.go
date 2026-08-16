@@ -22,11 +22,16 @@ type Querier interface {
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)
 	GetJobById(ctx context.Context, id pgtype.UUID) (Job, error)
 	GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Job, error)
+	HandlerStats(ctx context.Context, handler pgtype.Text) ([]HandlerStatsRow, error)
 	InsertJobLogs(ctx context.Context, arg InsertJobLogsParams) (int64, error)
 	// Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
+	// States arrive as text[], not job_state[]: pgx has no encode plan for an enum array unless
+	// the type is registered on every connection. The API validates each value before it gets here.
 	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
 	MarkQueued(ctx context.Context, arg MarkQueuedParams) ([]pgtype.UUID, error)
 	PauseJob(ctx context.Context, arg PauseJobParams) (Job, error)
+	QueueStats(ctx context.Context) ([]QueueStatsRow, error)
+	RecentJobsByHandler(ctx context.Context, arg RecentJobsByHandlerParams) ([]Job, error)
 	ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) ([]Job, error)
 	RecordJobExecutionFailure(ctx context.Context, arg RecordJobExecutionFailureParams) (int64, error)
 	RefreshHeartBeats(ctx context.Context, arg RefreshHeartBeatsParams) ([]pgtype.UUID, error)

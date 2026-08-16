@@ -15,8 +15,18 @@ SELECT * FROM jobs WHERE idempotency_key = @idempotency_key;
 -- Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
 -- name: ListJobs :many
 SELECT * FROM jobs
-ORDER BY created_at DESC, id DESC
-LIMIT $1 OFFSET $2;
+-- States arrive as text[], not job_state[]: pgx has no encode plan for an enum array unless
+-- the type is registered on every connection. The API validates each value before it gets here.
+WHERE (cardinality(@states::text[]) = 0 OR state::text = ANY(@states::text[]))
+  AND (sqlc.narg(queue)::text     IS NULL OR queue = sqlc.narg(queue)::text)
+  AND (sqlc.narg(handler)::text   IS NULL OR handler = sqlc.narg(handler)::text)
+  AND (sqlc.narg(job_type)::job_type IS NULL OR job_type = sqlc.narg(job_type)::job_type)
+  AND (sqlc.narg(search)::text    IS NULL
+       OR name ILIKE '%' || sqlc.narg(search)::text || '%'
+       OR handler ILIKE '%' || sqlc.narg(search)::text || '%'
+       OR id::text ILIKE '%' || sqlc.narg(search)::text || '%')
+ORDER BY updated_at DESC, id DESC
+LIMIT @page_limit OFFSET @page_offset;
 
 -- name: GetDueJobs :many
 WITH queued_counts AS (

@@ -55,8 +55,11 @@
     }
   }
 
+  const CONTROL_ATTRS = { 'sc-if': true, 'sc-for': true, 'sc-as': true };
+
   function setAttr(el, name, value) {
     if (name.startsWith('hint-')) return;             // design-tool hints, not runtime data
+    if (CONTROL_ATTRS[name]) return;                  // consumed by expand()
     const lower = name.toLowerCase();
     if (EVENTS[lower]) {
       const type = EVENTS[lower];
@@ -85,7 +88,9 @@
   }
 
   // Expand a template node into real DOM under `out`, resolving control flow against `scope`.
-  function expand(node, scope, out) {
+  // `controlDone` is set when re-entering for one iteration of an sc-for attribute, so the
+  // element renders itself instead of looping again.
+  function expand(node, scope, out, controlDone) {
     if (node.nodeType === 3) {                                    // text
       const raw = node.nodeValue;
       if (raw.indexOf('{{') === -1) { out.appendChild(document.createTextNode(raw)); return; }
@@ -113,6 +118,26 @@
         expandChildren(node, child, out);
       }
       return;
+    }
+
+    // Attribute form of the same two constructs. Required inside <table> and <select>: the
+    // HTML parser foster-parents an unknown *element* out of a table and drops it entirely
+    // inside a select, which silently unwraps the loop. An attribute always survives.
+    if (!controlDone) {
+      if (node.hasAttribute('sc-if') && !resolve(stripBraces(node.getAttribute('sc-if')), scope)) return;
+
+      if (node.hasAttribute('sc-for')) {
+        const list = resolve(stripBraces(node.getAttribute('sc-for')), scope);
+        const as = node.getAttribute('sc-as') || 'item';
+        if (!list || !list.length) return;
+        for (let i = 0; i < list.length; i++) {
+          const child = Object.create(scope);
+          child[as] = list[i];
+          child[as + 'Index'] = i;
+          expand(node, child, out, true);
+        }
+        return;
+      }
     }
 
     const el = document.createElement(tag);

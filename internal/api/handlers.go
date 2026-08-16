@@ -42,12 +42,13 @@ func (app *Application) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if fields := req.Validate(app.Queues); fields != nil {
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if fields := req.Validate(app.Queues, idempotencyKey); fields != nil {
 		app.failedValidation(w, r, fields)
 		return
 	}
 
-	created, isNew, err := app.JobRepository.Create(r.Context(), req.ToParams())
+	created, isNew, err := app.JobRepository.Create(r.Context(), req.ToParams(idempotencyKey))
 	if err != nil {
 		app.serverError(w, r, err)
 		return
@@ -82,12 +83,19 @@ func (app *Application) GetJob(w http.ResponseWriter, r *http.Request) {
 
 func (app *Application) ListJobs(w http.ResponseWriter, r *http.Request) {
 	page, fields := parsePagination(r)
+	filter, filterFields := parseJobFilter(r)
+	for name, msg := range filterFields {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields[name] = msg
+	}
 	if fields != nil {
 		app.failedValidation(w, r, fields)
 		return
 	}
 
-	jobs, err := app.JobRepository.List(r.Context(), page.toListJobsParams())
+	jobs, err := app.JobRepository.List(r.Context(), filter.toListJobsParams(page))
 	if err != nil {
 		app.serverError(w, r, err)
 		return
@@ -319,4 +327,70 @@ func mapSlice[In any, Out any](in []In, fn func(In) Out) []Out {
 		out = append(out, fn(v))
 	}
 	return out
+}
+
+func (app *Application) ListQueues(w http.ResponseWriter, r *http.Request) {
+	names := make([]string, 0, len(app.Queues))
+	for _, q := range app.Queues {
+		names = append(names, q.Name)
+	}
+
+	stats, err := app.DashboardRepository.QueueStats(r.Context(), names)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	app.writeJSON(w, r, http.StatusOK, stats)
+}
+
+func (app *Application) ListWorkers(w http.ResponseWriter, r *http.Request) {
+	entries, err := app.DashboardRepository.Workers(r.Context())
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	app.writeJSON(w, r, http.StatusOK, WorkerListResponse{
+		Workers: mapSlice(entries, NewWorkerResponse),
+	})
+}
+
+func (app *Application) ListHandlers(w http.ResponseWriter, r *http.Request) {
+	stats, err := app.DashboardRepository.HandlerStats(r.Context())
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	app.writeJSON(w, r, http.StatusOK, HandlerListResponse{Handlers: stats})
+}
+
+func (app *Application) GetHandler(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if name == "" {
+		app.notFound(w, r)
+		return
+	}
+
+	stat, err := app.DashboardRepository.HandlerStat(r.Context(), name)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+	if stat == nil {
+		app.notFound(w, r)
+		return
+	}
+
+	jobs, err := app.DashboardRepository.RecentJobsByHandler(r.Context(), name, handlerRecentJobs)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	app.writeJSON(w, r, http.StatusOK, HandlerDetailResponse{
+		Handler: *stat,
+		Jobs:    mapSlice(jobs, NewJobResponse),
+	})
 }

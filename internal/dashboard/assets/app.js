@@ -85,7 +85,7 @@ class Component extends DCLogic {
     const w = (this.state.workers || []).filter(x => x.id === workerId)[0];
     if (!w || !w.in_flight_jobs) return [];
     return w.in_flight_jobs.map(j => ({
-      job_id: j.id, job_name: j.name, queue: j.queue, attempt_no: j.attempt_no,
+      job_id: j.id, job_name: j.name, queue: j.queue,
       outcome: 'in_progress', started_at: j.started_at, finished_at: null
     })).sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
   }
@@ -96,7 +96,6 @@ class Component extends DCLogic {
     tick: 0,
     queues: null, queuesErr: null, queuesCode: null, queuesDone: false,
     odead: null,
-    stats: null,
     theme: 'light',
     workers: null, workersErr: null, workersCode: null, workersDone: false,
     jobs: null, pagination: null, jobsErr: null, jobsCode: null, jobsDone: false,
@@ -113,7 +112,7 @@ class Component extends DCLogic {
     detailTab: 'payload',
     actionErr: null, actionCode: null, actionOk: null,
     lastUpdated: null, connLost: false, hidden: false,
-    form: { mode: 'once', cron: '*/5 * * * *', startsAt: '', endsAt: '', name: 'send_email', handler: 'email.send', queue: 'default', priority: 5, payload: '{\n  "to": "a@b.com",\n  "template": "welcome"\n}', idem: '' },
+    form: { mode: 'once', cron: '*/5 * * * *', startsAt: '', endsAt: '', name: 'send_email', handler: 'email.send', queue: 'default', priority: 5, payload: '{\n  "to": "a@b.com",\n  "template": "welcome"\n}' },
     payloadError: null, submitErr: null, submitCode: null, submitting: false, createdId: null
   };
 
@@ -135,7 +134,6 @@ class Component extends DCLogic {
   getHandlers() { return this.api('/handlers'); }
   getHandler(name) { return this.api('/handlers/' + encodeURIComponent(name)); }
   getJobs(qs) { return this.api('/jobs?' + qs); }
-  getStats() { return this.api('/stats?window=24h'); }
   // The server keeps the job and its attempts on separate endpoints, so the detail view
   // composes them here. attempt_no is positional (attempts come back started_at ascending)
   // and the server calls the failure text `result`.
@@ -151,21 +149,24 @@ class Component extends DCLogic {
       }))
     };
   }
-  postCancel(id) { return this.api('/jobs/' + id + '/cancel', { method: 'POST' }); }
-  postRerun(id) { return this.api('/jobs/' + id + '/rerun', { method: 'POST' }); }
-  // One endpoint carries both directions; there is no /resume route.
-  pauseCall(id, paused) {
-    return this.api('/jobs/' + id + '/pause', {
+  // Every mutation sends the version the client last saw. The server enforces it, so a stale
+  // tab gets a 409 instead of silently clobbering a concurrent change.
+  postJSON(path, body) {
+    return this.api(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paused: paused })
+      body: JSON.stringify(body)
     });
   }
-  postPause(id) { return this.pauseCall(id, true); }
-  postResume(id) { return this.pauseCall(id, false); }
+  postCancel(id, version) { return this.postJSON('/jobs/' + id + '/cancel', { version: version }); }
+  postRerun(id, version) { return this.postJSON('/jobs/' + id + '/rerun', { version: version }); }
+  // One endpoint carries both directions; there is no /resume route.
+  pauseCall(id, paused, version) { return this.postJSON('/jobs/' + id + '/pause', { paused: paused, version: version }); }
+  postPause(id, version) { return this.pauseCall(id, true, version); }
+  postResume(id, version) { return this.pauseCall(id, false, version); }
   postSchedule(id, body) { return this.api('/jobs/' + id + '/schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
-  postJob(body, idem) {
-    return this.api('/jobs', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, idem ? { 'Idempotency-Key': idem } : {}), body: JSON.stringify(body) });
+  postJob(body) {
+    return this.postJSON('/jobs', body);
   }
 
   polls = 0;
@@ -228,10 +229,23 @@ class Component extends DCLogic {
       try { const d = await this.getQueues(); this.ok({ queues: d, queuesErr: null, queuesDone: true }); } catch (e) { this.fail('queues', e); }
       try { const d = await this.getWorkers(); this.ok({ workers: d.workers, workersErr: null, workersDone: true }); } catch (e) { this.fail('workers', e); }
       try { const d = await this.getJobs('state=dead&limit=6&offset=0'); this.ok({ odead: d.jobs }); } catch (e) { /* tiles degrade */ }
-      try { const d = await this.getStats(); this.ok({ stats: d }); } catch (e) { /* tiles degrade */ }
       try { const d = await this.getJobs('job_type=cron&limit=100&offset=0'); this.ok({ schedules: d.jobs }); } catch (e) { /* tiles degrade */ }
     } else if (r.path === '/jobs') {
       try { const d = await this.getJobs(this.jobsQuery(r)); this.ok({ jobs: d.jobs, pagination: d.pagination, jobsErr: null, jobsDone: true }); } catch (e) { this.fail('jobs', e); }
+      // Only to populate the queue and handler filter pickers — a failure here must not
+      // blank the table, so it degrades to "all queues" / "all handlers" instead.
+      try { const d = await this.getQueues(); this.ok({ queues: d }); } catch (e) { /* pickers degrade */ }
+      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) { /* pickers degrade */ }
+    } else if (r.path === '/submit') {
+      try {
+        const d = await this.getQueues();
+        this.ok({ queues: d });
+        // The form's seeded queue is a guess; snap it to a real one so an untouched form
+        // submits instead of 422ing on an unknown queue.
+        const names = d.map(q => q.queue);
+        if (names.length && names.indexOf(this.state.form.queue) === -1) this.setForm('queue', names[0]);
+      } catch (e) { /* pickers degrade */ }
+      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) { /* pickers degrade */ }
     } else if (r.detailId) {
       try { const d = await this.getJob(r.detailId); this.ok({ detail: d, detailErr: null, detailDone: true }); } catch (e) { this.fail('detail', e); }
     } else if (r.handlerId) {
@@ -404,7 +418,8 @@ class Component extends DCLogic {
     const r = this.route();
     this.setState({ actionErr: null, actionOk: null });
     try {
-      const call = { cancel: () => this.postCancel(r.detailId), rerun: () => this.postRerun(r.detailId), pause: () => this.postPause(r.detailId), resume: () => this.postResume(r.detailId) }[kind];
+      const v = ((this.state.detail || {}).job || {}).version;
+      const call = { cancel: () => this.postCancel(r.detailId, v), rerun: () => this.postRerun(r.detailId, v), pause: () => this.postPause(r.detailId, v), resume: () => this.postResume(r.detailId, v) }[kind];
       const res = await call();
       const said = { cancel: 'Cancelled', rerun: 'Requeued', pause: 'Paused', resume: 'Resumed' }[kind];
       this.setState({ actionOk: said + ' — state is now ' + res.state });
@@ -429,7 +444,7 @@ class Component extends DCLogic {
   }
   async applySchedule() {
     const sf = this.state.schedForm;
-    const body = { cron: sf.cron };
+    const body = { cron: sf.cron, version: ((this.state.detail || {}).job || {}).version };
     if (sf.startsAt) body.starts_at = this.formIso(sf.startsAt);
     if (sf.endsAt) body.ends_at = this.formIso(sf.endsAt);
     this.setState({ schedBusy: true, actionErr: null, actionOk: null });
@@ -476,7 +491,7 @@ class Component extends DCLogic {
     try { payload = JSON.parse(f.payload); } catch (e) { return this.setState({ payloadError: 'invalid JSON — ' + e.message, submitErr: null, createdId: null }); }
     this.setState({ payloadError: null, submitErr: null, createdId: null, submitting: true });
     try {
-      const res = await this.postJob(Object.assign({ name: f.name, handler: f.handler, queue: f.queue, payload: payload, priority: Number(f.priority) }, this.formSchedule()), f.idem);
+      const res = await this.postJob(Object.assign({ name: f.name, handler: f.handler, queue: f.queue, payload: payload, priority: Number(f.priority) }, this.formSchedule()));
       this.setState({ createdId: res.id, submitting: false });
     } catch (e) {
       this.setState({ submitErr: e.message, submitCode: e.code + ' · ' + e.status, submitting: false });
@@ -640,17 +655,6 @@ class Component extends DCLogic {
     });
 
     v.totalBacklog = qs ? qs.reduce((t, q) => t + q.counts.pending + q.counts.queued + q.counts.running + q.counts.awaiting_retry, 0) : '–';
-    const st = s.stats;
-    const nOrDash = (x) => st ? x : '–';
-    v.statSucceeded = nOrDash(st && st.succeeded);
-    v.statFailed = nOrDash(st && st.failed_attempts);
-    v.statFailedColor = st && st.failed_attempts ? 'color:var(--k-warn-fg)' : '';
-    v.statDead = nOrDash(st && st.dead);
-    v.statDeadColor = st && st.dead ? 'color:var(--k-crit-fg)' : '';
-    v.statCancelled = nOrDash(st && st.cancelled);
-    v.statRetries = nOrDash(st && st.retries);
-    v.statRate = st && (st.succeeded + st.failed_attempts) ? (st.succeeded / (st.succeeded + st.failed_attempts) * 100).toFixed(0) + '%' : '—';
-    v.statAvgRun = st && st.avg_run_ms ? (st.avg_run_ms < 10000 ? (st.avg_run_ms / 1000).toFixed(1) + 's' : this.dur(st.avg_run_ms / 1000)) : '—';
 
     v.onGoQueues = () => this.go('/queues');    v.queueNames = qs ? qs.map(q => q.queue).join(' · ') : '—';
     v.backlogLabel = qs ? v.totalBacklog + ' queued up' : '';
@@ -840,7 +844,7 @@ class Component extends DCLogic {
       onHold: async (e) => {
         e.stopPropagation();
         try {
-          await (j.state === 'paused' ? this.postResume(j.id) : this.postPause(j.id));
+          await (j.state === 'paused' ? this.postResume(j.id, j.version) : this.postPause(j.id, j.version));
         } catch (err) { /* surfaced on the row's next poll */ }
         this.load(true);
       },
@@ -1022,7 +1026,7 @@ class Component extends DCLogic {
         const secs = (Date.now() - Date.parse(j.started_at)) / 1000;
         return {
           idShort: j.id.slice(0, 8) + '…', name: j.name, handler: j.handler, queue: j.queue,
-          priority: j.priority, attempt_no: j.attempt_no, elapsed: this.dur(secs),
+          elapsed: this.dur(secs),
           elapsedStyle: { color: secs > 300 ? 'var(--k-crit-fg)' : secs > 60 ? 'var(--k-warn-fg)' : 'var(--k-text2)', fontWeight: secs > 300 ? 700 : 500 },
           onOpen: (e) => { e.stopPropagation(); this.go('/jobs/' + j.id); }
         };
@@ -1040,7 +1044,10 @@ class Component extends DCLogic {
       v.workerFound = !!w; v.workerNotFound = !w;
       if (w) {
         const staleSec = (Date.now() - Date.parse(w.last_seen)) / 1000;
-        const online = staleSec < 10;
+        // Two registry_intervals (10s each). At exactly one interval a healthy worker
+        // flickers stale every cycle; past two it has really missed a beat, and its key
+        // expires at registry_ttl (30s) anyway, which removes it from this list entirely.
+        const online = staleSec < 20;
         v.workerStatusLabel = online ? 'online' : 'stale heartbeat';
         v.workerStatusStyle = Object.assign(this.badge(online ? 'running' : 'awaiting_retry'), { fontSize: '12px' });
         v.workerQueueTags = w.queues;
@@ -1057,7 +1064,7 @@ class Component extends DCLogic {
           const secs = (Date.now() - Date.parse(j.started_at)) / 1000;
           return {
             idShort: j.id.slice(0, 8) + '…', name: j.name, handler: j.handler, queue: j.queue,
-            priority: j.priority, attempt_no: j.attempt_no, elapsed: this.dur(secs),
+            elapsed: this.dur(secs),
             elapsedStyle: { color: secs > 300 ? 'var(--k-crit-fg)' : secs > 60 ? 'var(--k-warn-fg)' : 'var(--k-text2)', fontWeight: secs > 300 ? 700 : 500 },
             onOpen: () => this.go('/jobs/' + j.id)
           };
@@ -1067,7 +1074,7 @@ class Component extends DCLogic {
         v.workerActivityReady = act.length > 0;
         v.workerActivityCount = act.length + (act.length === 1 ? ' attempt' : ' attempts') + ' (last 60)';
         v.workerActivityRows = act.map(a => ({
-          job_name: a.job_name, queue: a.queue, attempt_no: a.attempt_no, outcome: a.outcome,
+          job_name: a.job_name, queue: a.queue, outcome: a.outcome,
           outcomeStyle: this.badge(a.outcome),
           startedRel: this.relShort(a.started_at), startedAbs: a.started_at,
           duration: a.finished_at ? this.msDur(a.started_at, a.finished_at) : 'running…',
@@ -1104,7 +1111,6 @@ class Component extends DCLogic {
     v.formHandlerOptions = (s.handlers || []).map(h => h.handler);
     v.onFormPriority = (e) => this.setForm('priority', e.target.value);
     v.onFormPayload = (e) => this.setForm('payload', e.target.value);
-    v.onFormIdem = (e) => this.setForm('idem', e.target.value);
     v.onFormatPayload = () => {
       try { this.setForm('payload', JSON.stringify(JSON.parse(s.form.payload), null, 2)); this.setState({ payloadError: null }); }
       catch (e) { this.setState({ payloadError: 'invalid JSON — ' + e.message }); }
@@ -1116,7 +1122,7 @@ class Component extends DCLogic {
     v.submitError = s.submitErr; v.submitErrorCode = s.submitCode;
     v.createdId = s.createdId; v.createdHref = s.createdId ? '/jobs/' + s.createdId : '/jobs';
     const body = this.formBody();
-    v.requestPreview = 'POST /jobs\n' + (s.form.idem ? 'Idempotency-Key: ' + s.form.idem + '\n' : '') + 'Content-Type: application/json\n\n' +
+    v.requestPreview = 'POST /jobs\n' + 'Content-Type: application/json\n\n' +
       (body.payload === null ? '{ payload is not valid JSON }' : JSON.stringify(body, null, 2));
     return v;
   }
