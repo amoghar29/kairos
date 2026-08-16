@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/amoghar29/kairos/internal/dashboard"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -20,23 +21,27 @@ func (app *Application) Routes() http.Handler {
 		app.writeError(w, r, http.StatusMethodNotAllowed, CodeNotFound, "method not allowed for this resource", nil)
 	})
 
-	r.Route("/v1", func(r chi.Router) {
-		r.Get("/healthz", app.Healthcheck)
-		r.Route("/jobs", func(r chi.Router) {
-			r.Post("/", app.CreateJob)
-			r.Get("/", app.ListJobs)
+	r.Route("/api", func(r chi.Router) {
+		r.Route("/v1", func(r chi.Router) {
+			r.Get("/healthz", app.Healthcheck)
+			r.Route("/jobs", func(r chi.Router) {
+				r.Post("/", app.CreateJob)
+				r.Get("/", app.ListJobs)
 
-			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", app.GetJob)
-				r.Delete("/", app.DeleteJob)
-				r.Post("/cancel", app.CancelJob)
-				r.Post("/rerun", app.RerunJob)
-				r.Post("/pause", app.PauseJob)
-				r.Post("/reschedule", app.RescheduleJob)
-				r.Get("/attempts", app.ListJobAttempts)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", app.GetJob)
+					r.Delete("/", app.DeleteJob)
+					r.Post("/cancel", app.CancelJob)
+					r.Post("/rerun", app.RerunJob)
+					r.Post("/pause", app.PauseJob)
+					r.Post("/reschedule", app.RescheduleJob)
+					r.Get("/attempts", app.ListJobAttempts)
+				})
 			})
 		})
 	})
+
+	r.Handle("/*", dashboard.Handler())
 
 	return r
 }

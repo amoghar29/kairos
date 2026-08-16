@@ -33,5 +33,5 @@ logs/
 
 # Editor/IDE
 # .idea/
-# .vscode/
+.vscode/
 ignore

@@ -46,6 +46,8 @@ func validateSchedule(cronExpr string, startsAt, endsAt *time.Time) map[string]s
 		if startsAt == nil {
 			fields["starts_at"] = "must be provided for a cron job"
 		}
+	} else if startsAt != nil { 
+		fields["starts_at"] = "requires cron — an adhoc job runs as soon as it is picked up"
 	}
 
 	if startsAt != nil && !startsAt.After(now) {
@@ -155,14 +157,11 @@ func (r *CreateJobRequest) ToParams() db.CreateJobParams {
 		NextCheckAt:    pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
 	}
 
-	if r.StartsAt != nil {
-		arg.NextCheckAt = timestamptz(r.StartsAt)
-	}
-
 	if r.Cron != "" {
 		arg.JobType = db.JobTypeCron
 		arg.CronExpr = pgtype.Text{String: r.Cron, Valid: true}
 		arg.NextRunAt = arg.StartsAt
+		arg.NextCheckAt = arg.StartsAt
 	}
 
 	return arg
@@ -232,14 +231,11 @@ func (r *RescheduleRequest) ToParams(id pgtype.UUID) db.RescheduleJobParams {
 		NextCheckAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
 	}
 
-	if r.StartsAt != nil {
-		arg.NextCheckAt = timestamptz(r.StartsAt)
-	}
-
 	if r.Cron != "" {
 		arg.JobType = db.JobTypeCron
 		arg.CronExpr = pgtype.Text{String: r.Cron, Valid: true}
 		arg.NextRunAt = arg.StartsAt
+		arg.NextCheckAt = arg.StartsAt
 	}
 
 	return arg

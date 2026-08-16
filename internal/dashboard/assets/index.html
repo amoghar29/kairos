@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kairos</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+:root{
+  --k-ink:#1d1f20;--k-ink900:#2b2b2d;--k-muted:#7a7a7d;--k-text2:#5d5d60;--k-faint:#b7b7ba;--k-faint2:#98989b;
+  --k-line:#d4d4d7;--k-surface2:#e7e7ea;--k-neutral-bg:#d9dde0;
+  --k-crit-bg:#f7dedc;--k-crit-bg2:#f3d3d1;--k-crit-fg:#7f2320;--k-crit-fg2:#5c1a17;--k-crit-border:#c98b86;
+  --k-warn-bg:#f4e3c0;--k-warn-fg:#6b4a10;--k-warn-border:#d9bd7e;
+  --k-ok-bg:#cfe6d4;--k-ok-fg:#1f5130;--k-ok-border:#8fbb9c;
+  --k-red:#c0574f;--k-gold:#c9a24a;
+}
+:root[data-theme="dark"]{
+  --color-bg:#16181a;--color-surface:#1e2124;--color-text:#e6e7e9;
+  --color-divider:color-mix(in srgb,#e8e9eb 18%,transparent);
+  --color-accent:#7fa8cf;--color-accent-2:#93aac4;--color-accent-700:#a8c4e0;
+  --k-ink:#e8e9eb;--k-ink900:#000000;--k-muted:#8b8d91;--k-text2:#a9abaf;--k-faint:#626468;--k-faint2:#5a5c60;
+  --k-line:#33363a;--k-surface2:#212427;--k-neutral-bg:#2a2d31;
+  --k-crit-bg:#3a1a19;--k-crit-bg2:#4a1f1d;--k-crit-fg:#f0a19c;--k-crit-fg2:#f6c9c5;--k-crit-border:#7a3a36;
+  --k-warn-bg:#3a2f14;--k-warn-fg:#e3bd72;--k-warn-border:#6d5726;
+  --k-ok-bg:#16301f;--k-ok-fg:#8fd3a5;--k-ok-border:#35634a;
+  --k-red:#d4736b;--k-gold:#d2ad5c;
+}
+:root[data-theme="dark"] .input,:root[data-theme="dark"] select,:root[data-theme="dark"] textarea{background:var(--color-surface);color:var(--color-text)}
+body{margin:0;background:var(--color-bg);font-size:14px}
+:root{color-scheme:light}
+:root[data-theme="dark"]{color-scheme:dark}
+input[type="checkbox"]{accent-color:var(--color-accent)}
+a{color:var(--color-accent)}
+a:hover{color:var(--color-accent-700)}
+.k-t{width:100%;border-collapse:collapse;font-size:13px}
+.k-t th{text-align:left;font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted);padding:8px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap;background:var(--color-bg);position:sticky;top:0}
+.k-t td{padding:7px 12px;border-bottom:1px solid color-mix(in srgb,var(--k-ink) 7%,transparent);vertical-align:top}
+.k-t tbody tr:hover{background:color-mix(in srgb,var(--k-ink) 4%,transparent)}
+.k-num{font-variant-numeric:tabular-nums;text-align:right}
+.k-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.k-click{cursor:pointer}
+.k-side a{display:block;padding:6px 10px;color:var(--k-text2);text-decoration:none;border-left:2px solid transparent;letter-spacing:.01em}
+.k-side a:hover{color:var(--color-text);background:color-mix(in srgb,var(--k-ink) 4%,transparent)}
+.k-side a[aria-current="page"]{color:var(--color-text);border-left-color:var(--color-accent);background:color-mix(in srgb,var(--k-ink) 5%,transparent);font-weight:500}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<template id="app-template">
+
+<div style="min-height:100vh;font-family:var(--font-body);color:var(--color-text);display:flex;align-items:flex-start">
+
+  <div class="k-side" style="position:sticky;top:0;flex:0 0 208px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column;gap:26px;padding:16px 14px;background:var(--color-bg);border-right:1px solid var(--color-divider);z-index:30">
+    <a href="/" style="display:flex;flex-direction:column;gap:3px;text-decoration:none;color:inherit;padding:2px 10px;border-left:2px solid transparent">
+      <span style="font-family:var(--font-heading);font-weight:600;font-size:20px;letter-spacing:.16em">KAIROS</span>
+      <span style="font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--k-muted)">scheduler ops</span>
+    </a>
+    <nav style="display:flex;flex-direction:column;gap:2px;font-size:13px">
+      <a href="/" aria-current="{{ navOverview }}">Overview</a>
+      <a href="/queues" aria-current="{{ navQueues }}">Queues</a>
+      <a href="/jobs" aria-current="{{ navJobs }}">Jobs</a>
+      <a href="/schedules" aria-current="{{ navSchedules }}">Schedules</a>
+      <a href="/handlers" aria-current="{{ navHandlers }}">Handlers</a>
+      <a href="/workers" aria-current="{{ navWorkers }}">Workers</a>
+      <a href="/submit" aria-current="{{ navSubmit }}">Submit</a>
+      <a href="/docs" aria-current="{{ navDocs }}" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--color-divider)">Docs</a>
+    </nav>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;padding:0 10px 2px 12px">
+      <button class="btn btn-secondary" onClick="{{ onToggleTheme }}" style="justify-content:flex-start;padding:5px 8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;width:100%">{{ themeLabel }}</button>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--k-muted);letter-spacing:.02em">
+        <span style="{{ pollDotStyle }}"></span>
+        <span>{{ pollLabel }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:1;min-width:0;padding-bottom:60px">
+    <sc-if value="{{ connLost }}" hint-placeholder-val="{{ false }}">
+      <div style="position:sticky;top:0;z-index:20;background:var(--k-warn-bg);border-bottom:1px solid var(--k-warn-border);padding:5px 26px;font-size:11.5px;color:var(--k-warn-fg);letter-spacing:.02em">connection lost — polling failed, showing last good data ({{ lastUpdatedLabel }})</div>
+    </sc-if>
+
+  <div style="max-width:1480px;padding:26px">
+
+    <!-- ══ OVERVIEW ══ -->
+    <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:18px">
+          <h1 style="font-size:27px;margin:0;letter-spacing:.01em">Overview</h1>
+          <span style="font-size:11px;color:var(--k-muted);letter-spacing:.04em">GET /queues · GET /workers · GET /jobs?state=dead</span>
+        </div>
+
+        <div style="display:flex;gap:34px;align-items:stretch;margin-bottom:30px;flex-wrap:wrap">
+          <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">live workers</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ liveWorkers }}</div>
+          </div>
+          <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">in flight</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ totalInFlight }}</div>
+          </div>
+          <div class="blueprint k-click" onClick="{{ onGoQueues }}" style="padding:12px 22px 10px;min-width:150px;max-width:330px" title="Open Queues">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">queues</div>
+            <div style="display:flex;align-items:baseline;gap:9px">
+              <span style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ queueCount }}</span>
+              <span style="font-size:11px;color:var(--k-muted)">{{ backlogLabel }}</span>
+            </div>
+            <div class="k-mono" style="font-size:11px;color:var(--k-text2);margin-top:2px;line-height:1.45">{{ queueNames }}</div>
+          </div>
+          <div class="blueprint k-click" onClick="{{ onGoSchedules }}" style="padding:12px 22px 10px;min-width:150px" title="Open Schedules">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">schedules</div>
+            <div style="display:flex;align-items:baseline;gap:9px">
+              <span style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ schedCount }}</span>
+              <span style="font-size:11px;color:var(--k-muted)">{{ schedNextLabel }}</span>
+            </div>
+          </div>
+          <div class="blueprint k-click" onClick="{{ onGoDead }}" style="padding:12px 22px 10px;min-width:150px" title="Open dead jobs">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead jobs</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums;{{ deadTileColor }}">{{ deadCount }}</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ queuesError }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:18px 20px;margin-bottom:24px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ queuesErrorCode }}</div>
+            <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ queuesError }}</div>
+            <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
+          </div>
+        </sc-if>
+
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+          <h2 style="font-family:var(--font-heading);font-size:14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:0">Last 24 hours</h2>
+          <span style="font-size:11px;color:var(--k-muted)">counted from job attempts · GET /stats?window=24h</span>
+        </div>
+        <div class="blueprint" style="padding:14px 20px 13px;margin-bottom:30px;display:flex;gap:44px;flex-wrap:wrap;max-width:1300px">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div>
+            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">completed</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statSucceeded }}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">failed attempts</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums;{{ statFailedColor }}">{{ statFailed }}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums;{{ statDeadColor }}">{{ statDead }}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">cancelled</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statCancelled }}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">retries</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statRetries }}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">success rate</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statRate }}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">avg run</div>
+            <div style="font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums">{{ statAvgRun }}</div>
+          </div>
+          <div style="margin-left:auto;align-self:center;font-size:11px;color:var(--k-muted);max-width:210px;line-height:1.45">An attempt is one delivery to a worker; a job with three retries counts three attempts here.</div>
+        </div>
+
+        <sc-if value="{{ hasStalled }}" hint-placeholder-val="{{ false }}">
+          <div style="max-width:900px;margin-bottom:30px">
+            <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+              <h2 style="font-family:var(--font-heading);font-size:14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:0">Stalled schedules</h2>
+              <span style="font-size:11px;color:var(--k-muted)">{{ stalledSummary }}</span>
+              <a href="/schedules" style="font-size:11px;margin-left:auto">all schedules →</a>
+            </div>
+            <div class="blueprint" style="padding:0;border-color:var(--k-crit-border)">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div style="padding:9px 14px;border-bottom:1px solid var(--k-crit-border);background:var(--k-crit-bg);font-size:11.5px;color:var(--k-crit-fg2);line-height:1.5">These recurring jobs will not fire again on their own. A schedule stops at <span class="k-mono">dead</span> when one occurrence burns through max_retries, and at <span class="k-mono">expired</span> when its window closes — neither re-arms without you.</div>
+              <sc-for list="{{ stalledRows }}" as="st" hint-placeholder-count="2">
+                <div class="k-click" onClick="{{ st.onOpen }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid color-mix(in srgb,var(--k-ink) 7%,transparent)">
+                  <span style="{{ st.tagStyle }}">{{ st.tag }}</span>
+                  <span style="font-family:var(--font-heading);font-weight:600;font-size:14px">{{ st.name }}</span>
+                  <span class="k-mono" style="font-size:11.5px;color:var(--k-warn-fg);white-space:nowrap">{{ st.cron_expr }}</span>
+                  <span style="font-size:12px;color:var(--k-text2)">{{ st.detail }}</span>
+                  <span style="margin-left:auto;font-size:12px;color:var(--k-muted);white-space:nowrap">{{ st.metric }}</span>
+                  <span style="font-size:11.5px;color:var(--color-accent);white-space:nowrap">{{ st.fix }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="max-width:900px">
+          <div>
+            <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+              <h2 style="font-family:var(--font-heading);font-size:14px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:0">Latest dead jobs</h2>
+              <a href="/jobs?state=dead" style="font-size:11px">all dead jobs →</a>
+            </div>
+            <sc-if value="{{ noDead }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:26px 20px;color:var(--k-muted)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:15px;font-family:var(--font-heading);color:var(--color-text)">No dead jobs</div>
+                <div style="font-size:12px;margin-top:4px">Nothing has exhausted its retries.</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ hasDead }}" hint-placeholder-val="{{ true }}">
+              <div class="blueprint" style="padding:0;overflow-x:auto">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <table class="k-t">
+                  <thead><tr><th>job</th><th>handler</th><th class="k-num">retries</th><th class="k-num">died</th></tr></thead>
+                  <tbody>
+                    <sc-for list="{{ deadRows }}" as="d" hint-placeholder-count="4">
+                      <tr class="k-click" onClick="{{ d.onOpen }}">
+                        <td style="font-family:var(--font-heading);font-weight:600">{{ d.name }}<div style="font-weight:400;font-size:11px;color:var(--k-muted)">{{ d.queue }}</div></td>
+                        <td class="k-mono" style="color:var(--k-text2)">{{ d.handler }}</td>
+                        <td class="k-num" style="color:var(--k-crit-fg);font-weight:600">{{ d.retry_count }}</td>
+                        <td class="k-num" style="color:var(--k-muted)" title="{{ d.updatedAbs }}">{{ d.updatedRel }}</td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ══ QUEUES ══ -->
+    <sc-if value="{{ isQueues }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:6px">
+          <h1 style="font-size:27px;margin:0">Queues</h1>
+          <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">GET /queues · GET /workers</span>
+        </div>
+        <p style="margin:0 0 22px;font-size:11.5px;line-height:1.5;color:var(--k-muted);max-width:520px">Depth is what is in the scheduler; buffered is what is still in the Redis stream. A queue with backlog and no worker attached is dead.</p>
+
+        <sc-if value="{{ queuesLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:34px;text-align:center;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            loading /queues
+          </div>
+        </sc-if>
+        <sc-if value="{{ queuesError }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ queuesErrorCode }}</div>
+            <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ queuesError }}</div>
+            <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ queuesEmpty }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:34px;text-align:center;color:var(--k-muted)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:15px;font-family:var(--font-heading);color:var(--color-text)">No queues registered</div>
+            <div style="font-size:12px;margin-top:4px">A queue appears here once a job is enqueued to it.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ queuesReady }}" hint-placeholder-val="{{ true }}">
+          <div class="blueprint" style="padding:0;overflow-x:auto">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <table class="k-t">
+              <thead><tr>
+                <th style="width:18%">queue</th>
+                <th style="width:150px">composition</th>
+                <th class="k-num" style="width:70px">workers</th>
+                <th class="k-num">pending</th>
+                <th class="k-num">queued</th>
+                <th class="k-num">running</th>
+                <th class="k-num">awaiting_retry</th>
+                <th class="k-num">redis_buffered</th>
+                <th style="width:180px">oldest pending age</th>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{ queueRows }}" as="row" hint-placeholder-count="5">
+                  <tr class="k-click" onClick="{{ row.onOpen }}" tabIndex="{{ 0 }}" onKeyDown="{{ row.onKey }}" title="Open /jobs filtered to this queue">
+                    <td style="font-family:var(--font-heading);font-weight:600;font-size:15px;letter-spacing:.02em">
+                      <div>{{ row.queue }}</div>
+                      <sc-if value="{{ row.isDead }}" hint-placeholder-val="{{ false }}">
+                        <span style="{{ row.deadStyle }}">dead · no workers</span>
+                      </sc-if>
+                    </td>
+                    <td>
+                      <div style="display:flex;height:6px;margin-top:5px;background:color-mix(in srgb,var(--k-ink) 8%,transparent)">
+                        <div style="{{ row.barPending }}"></div>
+                        <div style="{{ row.barQueued }}"></div>
+                        <div style="{{ row.barRunning }}"></div>
+                        <div style="{{ row.barRetry }}"></div>
+                      </div>
+                      <div style="font-size:10px;color:var(--k-muted);margin-top:4px;font-variant-numeric:tabular-nums">depth {{ row.depth }}</div>
+                    </td>
+                    <td class="k-num" style="{{ row.workersStyle }}">{{ row.workerCount }}</td>
+                    <td class="k-num">{{ row.pending }}</td>
+                    <td class="k-num">{{ row.queued }}</td>
+                    <td class="k-num">{{ row.running }}</td>
+                    <td class="k-num" style="{{ row.retryStyle }}">{{ row.awaiting_retry }}</td>
+                    <td class="k-num" style="color:var(--k-muted)">{{ row.redis_buffered }}</td>
+                    <td><span style="{{ row.ageStyle }}">{{ row.ageLabel }}</span></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ══ JOBS ══ -->
+    <sc-if value="{{ isJobs }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:16px">
+          <h1 style="font-size:27px;margin:0">Jobs</h1>
+          <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">GET {{ jobsRequestPath }}</span>
+        </div>
+
+        <div class="blueprint" style="padding:12px 14px;margin-bottom:20px;display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">state · multi</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ stateChips }}" as="chip" hint-placeholder-count="7">
+                <button onClick="{{ chip.onToggle }}" aria-pressed="{{ chip.pressed }}" style="{{ chip.style }}">{{ chip.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">type</div>
+            <div style="display:flex;gap:6px">
+              <sc-for list="{{ typeChips }}" as="chip" hint-placeholder-count="3">
+                <button onClick="{{ chip.onPick }}" aria-pressed="{{ chip.pressed }}" style="{{ chip.style }}">{{ chip.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">queue · single</div>
+            <select class="input" style="width:170px;min-height:30px;font-size:13px" value="{{ queueValue }}" onChange="{{ onQueueChange }}">
+              <sc-for list="{{ queueOptions }}" as="opt" hint-placeholder-count="4">
+                <option value="{{ opt.value }}">{{ opt.label }}</option>
+              </sc-for>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">handler · single</div>
+            <select class="input k-mono" style="width:180px;min-height:30px;font-size:12.5px" value="{{ handlerValue }}" onChange="{{ onHandlerChange }}">
+              <sc-for list="{{ handlerOptions }}" as="opt" hint-placeholder-count="4">
+                <option value="{{ opt.value }}">{{ opt.label }}</option>
+              </sc-for>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">lookup · id, name or handler</div>
+            <div style="display:flex;gap:6px">
+              <input class="input k-mono" style="width:250px;min-height:30px;font-size:12.5px" placeholder="paste a job id, or type a name" value="{{ searchValue }}" onChange="{{ onSearchChange }}" onKeyDown="{{ onSearchKey }}">
+              <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" onClick="{{ onSearchSubmit }}">Find</button>
+            </div>
+          </div>
+          <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" onClick="{{ onClearFilters }}">Clear filters</button>
+          <div style="margin-left:auto;font-size:11px;color:var(--k-muted);text-align:right;line-height:1.5">
+            <div>{{ filterSummary }}</div>
+            <div class="k-mono" style="font-size:10.5px">?{{ urlQuery }}</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ jobsLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:34px;text-align:center;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            loading /jobs
+          </div>
+        </sc-if>
+        <sc-if value="{{ jobsError }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ jobsErrorCode }}</div>
+            <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ jobsError }}</div>
+            <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ jobsEmpty }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:36px;text-align:center">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:17px;font-family:var(--font-heading);font-weight:600">{{ emptyTitle }}</div>
+            <div style="font-size:12.5px;color:var(--k-muted);margin-top:6px;max-width:520px;margin-left:auto;margin-right:auto">{{ emptyDetail }}</div>
+            <div style="margin-top:14px"><button class="btn btn-secondary" onClick="{{ onClearFilters }}">Clear filters</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ jobsReady }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="blueprint" style="padding:0;overflow-x:auto">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <table class="k-t">
+                <thead><tr>
+                  <th style="width:26px"></th>
+                  <th style="width:130px;cursor:pointer" onClick="{{ onSortId }}">id{{ sortArrowId }}</th>
+                  <th style="cursor:pointer" onClick="{{ onSortName }}">name{{ sortArrowName }}</th>
+                  <th style="cursor:pointer" onClick="{{ onSortQueue }}">queue{{ sortArrowQueue }}</th>
+                  <th style="cursor:pointer" onClick="{{ onSortHandler }}">handler{{ sortArrowHandler }}</th>
+                  <th style="width:120px">state</th>
+                  <th class="k-num" style="cursor:pointer" title="1 is highest, 10 lowest" onClick="{{ onSortPriority }}">prio{{ sortArrowPriority }}</th>
+                  <th class="k-num" style="cursor:pointer" onClick="{{ onSortRetry }}">retry{{ sortArrowRetry }}</th>
+                  <th class="k-num">deliv</th>
+                  <th class="k-num" style="width:96px">next run</th>
+                  <th class="k-num" style="cursor:pointer" onClick="{{ onSortCreated }}">created{{ sortArrowCreated }}</th>
+                  <th class="k-num" style="cursor:pointer" onClick="{{ onSortUpdated }}">updated{{ sortArrowUpdated }}</th>
+                </tr></thead>
+                <tbody>
+                  <sc-for list="{{ jobRows }}" as="row" hint-placeholder-count="12">
+                    <tr>
+                      <td>
+                        <button class="btn btn-ghost" style="padding:0;font-size:11px;width:20px;height:20px;min-height:0" onClick="{{ row.onToggleExpand }}" title="Show attempts">{{ row.expandArrow }}</button>
+                      </td>
+                      <td><a href="{{ row.href }}" class="k-mono" style="text-decoration:none">{{ row.idShort }}</a></td>
+                      <td style="font-family:var(--font-heading);font-weight:600;font-size:14.5px">{{ row.name }}
+                        <sc-if value="{{ row.isCron }}" hint-placeholder-val="{{ false }}">
+                          <div class="k-mono" style="font-weight:400;font-size:11px;color:var(--k-warn-fg);white-space:nowrap" title="{{ row.cronHuman }}">⟳ {{ row.cron_expr }}</div>
+                        </sc-if>
+                      </td>
+                      <td style="color:var(--k-text2)">{{ row.queue }}</td>
+                      <td><a href="{{ row.handlerHref }}" class="k-mono" style="text-decoration:none">{{ row.handler }}</a></td>
+                      <td><span style="{{ row.badgeStyle }}">{{ row.state }}</span></td>
+                      <td class="k-num" style="{{ row.prioStyle }}" title="1 is highest, 10 lowest">{{ row.priority }}</td>
+                      <td class="k-num" style="{{ row.retryStyle }}">{{ row.retry_count }}</td>
+                      <td class="k-num" style="color:var(--k-muted)">{{ row.delivery_count }}</td>
+                      <td class="k-num" style="{{ row.nextRunStyle }}" title="{{ row.nextRunAbs }}"><span style="white-space:nowrap">{{ row.nextRun }}</span></td>
+                      <td class="k-num" style="color:var(--k-text2)" title="{{ row.createdAbs }}">{{ row.createdRel }}</td>
+                      <td class="k-num" style="color:var(--k-text2)" title="{{ row.updatedAbs }}">{{ row.updatedRel }}</td>
+                    </tr>
+                    <sc-if value="{{ row.expanded }}" hint-placeholder-val="{{ false }}">
+                      <tr>
+                        <td colspan="12" style="background:var(--color-surface);padding:10px 14px 14px 40px">
+                          <div style="font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">attempts for {{ row.idShort }} — click a row for full detail</div>
+                          <sc-if value="{{ row.attemptsLoading }}" hint-placeholder-val="{{ false }}">
+                            <div style="font-size:11.5px;color:var(--k-muted)">loading attempts…</div>
+                          </sc-if>
+                          <sc-if value="{{ row.attemptsEmpty }}" hint-placeholder-val="{{ false }}">
+                            <div style="font-size:11.5px;color:var(--k-muted)">No attempts yet — not delivered to a worker.</div>
+                          </sc-if>
+                          <sc-if value="{{ row.attemptsReady }}" hint-placeholder-val="{{ false }}">
+                            <table class="k-t" style="background:transparent">
+                              <thead><tr>
+                                <th class="k-num" style="width:34px">#</th>
+                                <th style="width:80px">worker</th>
+                                <th style="width:96px">outcome</th>
+                                <th>error</th>
+                                <th class="k-num" style="width:80px">started</th>
+                                <th class="k-num" style="width:70px">duration</th>
+                              </tr></thead>
+                              <tbody>
+                                <sc-for list="{{ row.attemptsRows }}" as="a" hint-placeholder-count="3">
+                                  <tr class="k-click" onClick="{{ a.onOpen }}" title="Open full job detail">
+                                    <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
+                                    <td class="k-mono" style="white-space:nowrap" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
+                                    <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
+                                    <td style="font-size:12px;color:var(--k-crit-fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">{{ a.error }}</td>
+                                    <td class="k-num" style="color:var(--k-text2)">{{ a.startedRel }}</td>
+                                    <td class="k-num">{{ a.duration }}</td>
+                                  </tr>
+                                </sc-for>
+                              </tbody>
+                            </table>
+                            <div style="margin-top:6px"><a href="{{ row.href }}" style="font-size:11.5px;text-decoration:none">open full job detail →</a></div>
+                          </sc-if>
+                        </td>
+                      </tr>
+                    </sc-if>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;margin-top:14px;font-size:12px;color:var(--k-text2)">
+              <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" disabled="{{ prevDisabled }}" onClick="{{ onPrev }}">← Prev</button>
+              <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" disabled="{{ nextDisabled }}" onClick="{{ onNext }}">Next →</button>
+              <span class="k-mono" style="font-size:11.5px">{{ pageLabel }}</span>
+              <span style="font-size:11px;color:var(--k-faint2)">offset pagination — rows can shift between pages under concurrent inserts</span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ══ JOB DETAIL ══ -->
+    <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="font-size:11.5px;color:var(--k-muted);margin-bottom:10px"><a href="{{ backHref }}" style="text-decoration:none">← Jobs</a><span style="margin:0 8px">/</span><span class="k-mono">{{ detailId }}</span></div>
+
+        <sc-if value="{{ detailLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:34px;text-align:center;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            loading job
+          </div>
+        </sc-if>
+        <sc-if value="{{ detailError }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ detailErrorCode }}</div>
+            <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ detailError }}</div>
+            <a class="btn btn-secondary" href="/jobs">Back to jobs</a>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ detailReady }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div class="blueprint" style="padding:16px 20px;margin-bottom:22px">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div style="display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap">
+                <div style="flex:1;min-width:260px">
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                    <span style="{{ jobBadgeStyle }}">{{ job.state }}</span>
+                    <h1 style="font-size:26px;margin:0">{{ job.name }}</h1>
+                    <span style="font-size:12.5px;color:var(--k-muted)">{{ job.queue }}</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:12px 20px;max-width:760px">
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">handler</div><div style="font-size:14px"><a class="k-mono" href="{{ jobHandlerHref }}" style="text-decoration:none">{{ job.handler }}</a></div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">priority</div><div style="font-size:14px" title="1 is highest, 10 lowest">{{ job.priority }} <span style="color:var(--k-faint2);font-size:11px">of 10</span></div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">retry_count</div><div style="font-size:14px">{{ job.retry_count }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">delivery_count</div><div style="font-size:14px">{{ job.delivery_count }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">next_check_at</div><div style="font-size:14px" title="{{ nextCheckAbs }}">{{ nextCheckLabel }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last_run_at</div><div style="font-size:14px" title="{{ lastRunAbs }}">{{ lastRunLabel }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">created_at</div><div style="font-size:14px" title="{{ createdAbs }}">{{ createdRel }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">updated_at</div><div style="font-size:14px" title="{{ updatedAbs }}">{{ updatedRel }}</div></div>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;min-width:250px">
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <sc-if value="{{ showPause }}" hint-placeholder-val="{{ true }}">
+                      <button class="btn btn-secondary" disabled="{{ pauseDisabled }}" onClick="{{ onPause }}" title="{{ pauseHint }}">Pause</button>
+                    </sc-if>
+                    <sc-if value="{{ showResume }}" hint-placeholder-val="{{ false }}">
+                      <button class="btn btn-primary" onClick="{{ onResume }}" title="{{ resumeHint }}">Resume</button>
+                    </sc-if>
+                    <button class="btn btn-secondary" disabled="{{ scheduleDisabled }}" onClick="{{ onOpenSchedule }}" title="{{ scheduleHint }}">{{ scheduleLabel }}</button>
+                    <button class="btn btn-secondary" disabled="{{ cancelDisabled }}" onClick="{{ onCancel }}" title="{{ cancelHint }}">Cancel</button>
+                    <button class="btn btn-primary" disabled="{{ rerunDisabled }}" onClick="{{ onRerun }}" title="{{ rerunHint }}">Rerun</button>
+                  </div>
+                  <sc-if value="{{ actionError }}" hint-placeholder-val="{{ false }}">
+                    <div style="background:var(--k-crit-bg);border:1px solid var(--k-crit-border);padding:8px 10px;max-width:280px">
+                      <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg)">{{ actionErrorCode }}</div>
+                      <div style="font-size:12.5px;color:var(--k-crit-fg2);line-height:1.45">{{ actionError }}</div>
+                      <button class="btn btn-ghost" style="font-size:11px;padding:2px 0;margin-top:2px" onClick="{{ onDismissActionError }}">dismiss</button>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ actionOk }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size:12px;color:var(--k-ok-fg);background:var(--k-ok-bg);border:1px solid var(--k-ok-border);padding:7px 10px;max-width:280px">{{ actionOk }}</div>
+                  </sc-if>
+                </div>
+              </div>
+            </div>
+
+            <sc-if value="{{ scheduleOpen }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:16px 20px;margin-bottom:22px;max-width:1000px;border-color:var(--color-accent)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px;flex-wrap:wrap">
+                  <h2 style="font-size:18px;margin:0">{{ scheduleLabel }}</h2>
+                  <span class="k-mono" style="font-size:11.5px;color:var(--k-muted)">POST /jobs/{{ detailId }}/schedule</span>
+                  <button class="btn btn-ghost" style="margin-left:auto;min-height:24px;padding:2px 8px;font-size:11.5px" onClick="{{ onCloseSchedule }}">close</button>
+                </div>
+                <p style="margin:0 0 14px;font-size:12px;color:var(--k-muted);line-height:1.5;max-width:640px">{{ scheduleBlurb }}</p>
+                <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+                  <div style="flex:1;min-width:300px;display:flex;flex-direction:column;gap:13px">
+                    <div class="field"><label>cron expression · 5 fields, UTC</label>
+                      <select class="input" style="margin-bottom:6px" value="{{ schedForm.preset }}" onChange="{{ onSchedPreset }}">
+                        <sc-for list="{{ cronPresetOptions }}" as="p" hint-placeholder-count="7"><option value="{{ p.value }}">{{ p.label }}</option></sc-for>
+                      </select>
+                      <input class="input k-mono" style="font-size:12.5px" value="{{ schedForm.cron }}" onChange="{{ onSchedCron }}" placeholder="*/5 * * * *">
+                      <sc-if value="{{ schedCronError }}" hint-placeholder-val="{{ false }}">
+                        <div style="font-size:11.5px;color:var(--k-crit-fg);margin-top:5px">{{ schedCronError }}</div>
+                      </sc-if>
+                    </div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap">
+                      <div class="field" style="flex:1;min-width:165px"><label>starts_at · UTC · required</label>
+                        <input class="input k-mono" style="font-size:12.5px" type="datetime-local" value="{{ schedForm.startsAt }}" onChange="{{ onSchedStarts }}">
+                      </div>
+                      <div class="field" style="flex:1;min-width:165px"><label>ends_at · UTC, optional</label>
+                        <input class="input k-mono" style="font-size:12.5px" type="datetime-local" value="{{ schedForm.endsAt }}" onChange="{{ onSchedEnds }}">
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                      <button class="btn btn-primary" disabled="{{ schedApplyDisabled }}" onClick="{{ onApplySchedule }}">{{ schedApplyLabel }}</button>
+                      <button class="btn btn-ghost" onClick="{{ onCloseSchedule }}">cancel</button>
+                      <span style="font-size:11.5px;color:var(--k-muted)">{{ schedApplyNote }}</span>
+                    </div>
+                  </div>
+                  <div style="flex:0 0 300px;min-width:250px">
+                    <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:7px">after applying, fires at</div>
+                    <sc-if value="{{ schedPreviewEmpty }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:12px;color:var(--k-crit-fg);line-height:1.5">Nothing fires inside this window — the API rejects it with 422.</div>
+                    </sc-if>
+                    <div style="display:flex;flex-direction:column;gap:4px">
+                      <sc-for list="{{ schedPreviewRows }}" as="p" hint-placeholder-count="3">
+                        <div class="k-mono" style="font-size:12px;display:flex;gap:10px;white-space:nowrap">
+                          <span>{{ p.abs }}</span>
+                          <span style="color:var(--k-muted)">in {{ p.rel }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <sc-if value="{{ schedShowsReplace }}" hint-placeholder-val="{{ false }}">
+                      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--color-divider)">
+                        <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:5px">replaces</div>
+                        <div class="k-mono" style="font-size:12px;color:var(--k-warn-fg);white-space:nowrap">{{ jobCronExpr }}</div>
+                        <div style="font-size:11.5px;color:var(--k-muted);line-height:1.5;margin-top:3px">Attempt history and run count are kept. The pending occurrence is re-armed to the new time.</div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ jobIsPaused }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:12px 18px;margin-bottom:22px;max-width:1000px;background:var(--k-warn-bg);border-color:var(--k-warn-border);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <span style="font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--k-warn-fg)">Paused {{ pausedRel }}</span>
+                <span style="font-size:12.5px;color:var(--k-text2)">{{ pausedNote }}</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ jobIsCron }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:14px 18px;margin-bottom:22px;max-width:1000px">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+                  <span style="{{ schedTagStyle }}">recurring</span>
+                  <span class="k-mono" style="font-size:17px;font-weight:600;white-space:nowrap">{{ jobCronExpr }}</span>
+                  <span style="font-size:12.5px;color:var(--k-text2)">{{ jobCronHuman }}</span>
+                  <span style="font-size:11px;color:var(--k-muted);margin-left:auto">UTC · no backfill · one run at a time</span>
+                </div>
+                <sc-if value="{{ jobStalled }}" hint-placeholder-val="{{ false }}">
+                  <div style="background:var(--k-crit-bg);border:1px solid var(--k-crit-border);padding:8px 11px;margin-bottom:12px;font-size:12.5px;color:var(--k-crit-fg2)">{{ jobStalledNote }}</div>
+                </sc-if>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px 20px">
+                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">starts_at</div><div style="font-size:13.5px" title="{{ jobStartsAbs }}">{{ jobStartsLabel }}</div></div>
+                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">ends_at</div><div style="font-size:13.5px" title="{{ jobEndsAbs }}">{{ jobEndsLabel }}</div></div>
+                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last run</div><div style="font-size:13.5px" title="{{ lastRunAbs }}">{{ lastRunLabel }}</div></div>
+                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">runs recorded</div><div style="font-size:13.5px">{{ jobRunCount }}</div></div>
+                </div>
+                <sc-if value="{{ jobHasUpcoming }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top:12px">
+                    <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:5px">next fires</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                      <sc-for list="{{ jobUpcoming }}" as="u" hint-placeholder-count="3">
+                        <span class="k-mono" style="font-size:11.5px;padding:3px 9px;background:var(--color-surface);border:1px solid var(--color-divider);white-space:nowrap">{{ u.abs }} <span style="color:var(--k-muted)">· in {{ u.rel }}</span></span>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+            <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+              <div class="blueprint" style="padding:12px 14px;flex:0 0 320px;min-width:280px">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                  <button class="btn btn-ghost" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:2px 0" onClick="{{ onTogglePayload }}">{{ payloadToggleLabel }}</button>
+                  <span style="margin-left:auto"></span>
+                  <button class="btn btn-secondary" style="font-size:11px;min-height:26px;padding:2px 9px" onClick="{{ onCopyPayload }}">{{ copyLabel }}</button>
+                </div>
+                <sc-if value="{{ payloadOpen }}" hint-placeholder-val="{{ true }}">
+                  <pre class="k-mono" style="margin:0;background:var(--color-surface);border:1px solid var(--color-divider);padding:10px;overflow:auto;max-height:340px;font-size:12px;line-height:1.5">{{ payloadJson }}</pre>
+                </sc-if>
+              </div>
+
+              <div style="flex:1 1 620px;min-width:620px">
+                <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+                  <h2 style="font-size:19px;margin:0">Logs</h2>
+                  <span style="font-size:11px;color:var(--k-muted)">lifecycle + attempt history for this job, oldest first</span>
+                </div>
+                <div class="blueprint k-mono" style="padding:10px 12px;margin-bottom:22px;background:var(--k-ink);color:var(--k-neutral-bg);font-size:12px;line-height:1.7;max-height:220px;overflow:auto">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <sc-for list="{{ jobLogRows }}" as="lg" hint-placeholder-count="6">
+                    <div><span style="color:var(--color-accent-2)">{{ lg.t }}</span> {{ lg.line }}</div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+                  <h2 style="font-size:19px;margin:0">Attempts</h2>
+                  <span style="font-size:11px;color:var(--k-muted)">{{ attemptsCount }} · ordered by attempt_no asc</span>
+                  <select class="input" style="margin-left:auto;width:150px;min-height:28px;font-size:12.5px" value="{{ attemptsFilter }}" onChange="{{ onAttemptsFilterChange }}">
+                    <sc-for list="{{ attemptsFilterOptions }}" as="opt" hint-placeholder-count="3">
+                      <option value="{{ opt.value }}">{{ opt.label }}</option>
+                    </sc-for>
+                  </select>
+                </div>
+                <sc-if value="{{ attemptsEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div class="blueprint" style="padding:24px;text-align:center;color:var(--k-muted);font-size:12.5px">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    No attempts yet — the job has not been delivered to a worker.
+                  </div>
+                </sc-if>
+                <sc-if value="{{ attemptsReady }}" hint-placeholder-val="{{ false }}">
+                  <div class="blueprint" style="padding:0;overflow-x:auto">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    <div style="max-height:520px;overflow:auto">
+                      <table class="k-t">
+                        <thead><tr>
+                          <th class="k-num" style="width:34px">#</th>
+                          <th style="width:80px;white-space:nowrap">worker</th>
+                          <th style="width:96px">outcome</th>
+                          <th style="min-width:280px">error</th>
+                          <th class="k-num" style="width:80px">started</th>
+                          <th class="k-num" style="width:80px">finished</th>
+                          <th class="k-num" style="width:74px">duration</th>
+                        </tr></thead>
+                        <tbody>
+                          <sc-for list="{{ attemptRows }}" as="a" hint-placeholder-count="6">
+                            <tr>
+                              <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
+                              <td class="k-mono" style="white-space:nowrap" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
+                              <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
+                              <td style="min-width:280px">
+                                <div style="{{ a.errorStyle }}">{{ a.error }}</div>
+                                <sc-if value="{{ a.canExpand }}" hint-placeholder-val="{{ false }}">
+                                  <button class="btn btn-ghost" style="font-size:10.5px;padding:0;letter-spacing:.06em" onClick="{{ a.onToggle }}">{{ a.toggleLabel }}</button>
+                                </sc-if>
+                              </td>
+                              <td class="k-num" style="color:var(--k-text2)" title="{{ a.startedAbs }}">{{ a.startedRel }}</td>
+                              <td class="k-num" style="color:var(--k-text2)" title="{{ a.finishedAbs }}">{{ a.finishedRel }}</td>
+                              <td class="k-num">{{ a.duration }}</td>
+                            </tr>
+                          </sc-for>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ══ SCHEDULES ══ -->
+    <sc-if value="{{ isSchedules }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:6px">
+          <h1 style="font-size:27px;margin:0">Schedules</h1>
+          <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">GET /jobs?job_type=cron</span>
+        </div>
+        <p style="margin:0 0 20px;font-size:11.5px;line-height:1.5;color:var(--k-muted);max-width:640px">One jobs row per schedule, reused forever: a successful run re-arms it to <span class="k-mono">pending</span> at the next fire time instead of going terminal. Every occurrence is a row in the job's attempt history. All times UTC.</p>
+        <sc-if value="{{ schedLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:34px;text-align:center;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            loading schedules
+          </div>
+        </sc-if>
+        <sc-if value="{{ schedEmpty }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:36px;text-align:center">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:17px;font-family:var(--font-heading);font-weight:600">No recurring jobs</div>
+            <div style="font-size:12.5px;color:var(--k-muted);margin-top:6px">Submit one with a cron expression to see it here.</div>
+            <div style="margin-top:14px"><a class="btn btn-secondary" href="/submit">Submit a schedule</a></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ schedReady }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:0;overflow-x:auto">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <table class="k-t">
+              <thead><tr>
+                <th>schedule</th>
+                <th style="min-width:132px;white-space:nowrap">cron</th>
+                <th style="width:110px">queue</th>
+                <th style="width:130px">state</th>
+                <th class="k-num" style="width:100px">last run</th>
+                <th class="k-num" style="min-width:104px;white-space:nowrap">next run</th>
+                <th style="min-width:126px">window</th>
+                <th class="k-num" style="width:60px">runs</th>
+                <th style="width:96px"></th>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{ schedRows }}" as="sr" hint-placeholder-count="6">
+                  <tr class="k-click" onClick="{{ sr.onOpen }}" title="Open job detail">
+                    <td style="font-family:var(--font-heading);font-weight:600;font-size:14.5px">{{ sr.name }}<div class="k-mono" style="font-weight:400;font-size:11px;color:var(--k-muted)">{{ sr.handler }}</div></td>
+                    <td class="k-mono" style="font-size:12px;color:var(--k-warn-fg);white-space:nowrap"><div style="white-space:nowrap">{{ sr.cron_expr }}</div><div style="font-family:var(--font-body);font-size:10.5px;color:var(--k-muted);white-space:normal">{{ sr.human }}</div></td>
+                    <td style="color:var(--k-text2)">{{ sr.queue }}</td>
+                    <td><span style="{{ sr.badgeStyle }}">{{ sr.state }}</span><div style="font-size:10.5px;color:var(--k-crit-fg);margin-top:3px">{{ sr.stalledNote }}</div></td>
+                    <td class="k-num" style="color:var(--k-text2)" title="{{ sr.lastAbs }}">{{ sr.lastRel }}</td>
+                    <td class="k-num" style="{{ sr.nextStyle }}" title="{{ sr.nextAbs }}"><span style="white-space:nowrap">{{ sr.nextRel }}</span></td>
+                    <td style="font-size:11.5px;color:var(--k-text2);line-height:1.45">
+                      <div style="white-space:nowrap">{{ sr.windowFrom }}</div>
+                      <div style="white-space:nowrap;color:var(--k-muted)">{{ sr.windowTo }}</div>
+                    </td>
+                    <td class="k-num" style="color:var(--k-muted)">{{ sr.runs }}</td>
+                    <td>
+                      <sc-if value="{{ sr.canHold }}" hint-placeholder-val="{{ false }}">
+                        <button class="btn btn-ghost" style="min-height:24px;padding:2px 8px;font-size:11.5px" onClick="{{ sr.onHold }}">{{ sr.holdLabel }}</button>
+                      </sc-if>
+                    </td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ══ DOCS ══ -->
+    <sc-if value="{{ isDocs }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1180px">
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:6px">
+          <h1 style="font-size:27px;margin:0">Docs</h1>
+        </div>
+        <div class="blueprint" style="padding:44px 28px;margin-top:20px;text-align:center">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div style="font-family:var(--font-heading);font-weight:600;font-size:17px">No docs available as of now</div>
+          <div style="font-size:12.5px;color:var(--k-muted);margin-top:8px">We will add them later.</div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isNotFound }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:1180px">
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:6px">
+          <h1 style="font-size:27px;margin:0">404</h1>
+          <span style="font-size:11px;color:var(--k-muted)">no page is routed here</span>
+        </div>
+        <div class="blueprint" style="padding:44px 28px;margin-top:20px;text-align:center">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div style="font-family:var(--font-heading);font-weight:600;font-size:17px">Page not found</div>
+          <div class="k-mono" style="font-size:12.5px;color:var(--k-muted);margin-top:8px">{{ notFoundPath }}</div>
+          <div style="margin-top:18px"><a class="btn btn-secondary" href="/">Back to overview</a></div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ══ HANDLERS ══ -->
+    <sc-if value="{{ isHandlers }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <sc-if value="{{ isHandlerDetail }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div style="font-size:11.5px;color:var(--k-muted);margin-bottom:10px"><a href="/handlers" style="text-decoration:none">← Handlers</a><span style="margin:0 8px">/</span><span class="k-mono">{{ handlerDetailId }}</span></div>
+            <sc-if value="{{ handlerNotFound }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:34px;text-align:center;color:var(--k-muted)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                No jobs reference this handler — handlers exist only as the <span class="k-mono">jobs.handler</span> string, so one with no rows is invisible here.
+              </div>
+            </sc-if>
+            <sc-if value="{{ handlerFound }}" hint-placeholder-val="{{ false }}">
+              <div>
+                <div class="blueprint" style="padding:16px 20px;margin-bottom:22px">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+                    <span style="{{ handlerHealthStyle }}">{{ handlerHealthLabel }}</span>
+                    <h1 class="k-mono" style="font-size:25px;margin:0">{{ handlerDetailId }}</h1>
+                    <a href="{{ handlerJobsHref }}" style="font-size:11.5px;text-decoration:none;margin-left:auto">open in Jobs →</a>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px 20px;max-width:900px">
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">jobs</div><div style="font-size:14px">{{ hd.total }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">success rate</div><div style="font-size:14px">{{ hd.successRate }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">avg run</div><div style="font-size:14px">{{ hd.avgRun }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead</div><div style="font-size:14px">{{ hd.dead }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last activity</div><div style="font-size:14px" title="{{ hd.lastAbs }}">{{ hd.lastRel }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">queues</div><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><sc-for list="{{ hd.queues }}" as="q" hint-placeholder-count="2"><span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span></sc-for></div></div>
+                  </div>
+                  <div style="margin-top:12px;font-size:11px;color:var(--k-muted);max-width:660px;line-height:1.5">Handler is a plain <span class="k-mono">text</span> column on <span class="k-mono">jobs</span> with a not-empty constraint — there is no handler registry table. Everything below is aggregated over job rows and their attempts.</div>
+                </div>
+
+                <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
+                  <div class="blueprint" style="padding:0;flex:0 0 300px;min-width:260px;overflow-x:auto">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    <table class="k-t">
+                      <thead><tr><th>state</th><th class="k-num" style="width:70px">jobs</th><th class="k-num" style="width:64px">share</th></tr></thead>
+                      <tbody>
+                        <sc-for list="{{ hd.stateRows }}" as="st" hint-placeholder-count="7">
+                          <tr>
+                            <td><span style="{{ st.badgeStyle }}">{{ st.state }}</span></td>
+                            <td class="k-num">{{ st.count }}</td>
+                            <td class="k-num" style="color:var(--k-muted)">{{ st.share }}</td>
+                          </tr>
+                        </sc-for>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style="flex:1 1 560px;min-width:480px">
+                    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+                      <h2 style="font-size:19px;margin:0">Recent jobs</h2>
+                      <span style="font-size:11px;color:var(--k-muted)">{{ hd.recentCount }} · newest first</span>
+                    </div>
+                    <div class="blueprint" style="padding:0;overflow-x:auto">
+                      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                      <div style="max-height:520px;overflow:auto">
+                        <table class="k-t">
+                          <thead><tr>
+                            <th style="width:120px">id</th>
+                            <th>name</th>
+                            <th>queue</th>
+                            <th style="width:118px">state</th>
+                            <th class="k-num" style="width:52px">retry</th>
+                            <th class="k-num" style="width:82px">updated</th>
+                          </tr></thead>
+                          <tbody>
+                            <sc-for list="{{ hd.recentRows }}" as="row" hint-placeholder-count="10">
+                              <tr class="k-click" onClick="{{ row.onOpen }}" title="Open job detail">
+                                <td class="k-mono">{{ row.idShort }}</td>
+                                <td style="font-family:var(--font-heading);font-weight:600;font-size:14px">{{ row.name }}</td>
+                                <td style="color:var(--k-text2)">{{ row.queue }}</td>
+                                <td><span style="{{ row.badgeStyle }}">{{ row.state }}</span></td>
+                                <td class="k-num" style="{{ row.retryStyle }}">{{ row.retry_count }}</td>
+                                <td class="k-num" style="color:var(--k-text2)" title="{{ row.updatedAbs }}">{{ row.updatedRel }}</td>
+                              </tr>
+                            </sc-for>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isHandlerList }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:16px">
+              <h1 style="font-size:27px;margin:0">Handlers</h1>
+              <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">GET /handlers · derived from jobs.handler</span>
+            </div>
+
+            <div style="display:flex;gap:34px;align-items:stretch;margin-bottom:26px;flex-wrap:wrap">
+              <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">handlers seen</div>
+                <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ handlerCount }}</div>
+              </div>
+              <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">with dead jobs</div>
+                <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ handlersFailing }}</div>
+              </div>
+              <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">jobs in flight</div>
+                <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ handlersRunning }}</div>
+              </div>
+              <div style="flex:1;min-width:240px;display:flex;align-items:flex-end;padding-bottom:4px">
+                <p style="margin:0;font-size:11.5px;line-height:1.5;color:var(--k-muted);max-width:400px">Success rate counts terminal jobs only (success vs dead), so a handler with everything still in flight reads as —. Sort by dead to find the code that keeps exhausting retries.</p>
+              </div>
+            </div>
+
+            <sc-if value="{{ handlersLoading }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:34px;text-align:center;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                loading /handlers
+              </div>
+            </sc-if>
+            <sc-if value="{{ handlersError }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ handlersErrorCode }}</div>
+                <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ handlersError }}</div>
+                <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ handlersEmpty }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:36px;text-align:center">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:17px;font-family:var(--font-heading);font-weight:600">No handlers seen</div>
+                <div style="font-size:12.5px;color:var(--k-muted);margin-top:6px">A handler appears once a job is enqueued with that handler string.</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ handlersReady }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:0;overflow-x:auto">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <table class="k-t">
+                  <thead><tr>
+                    <th style="width:170px;cursor:pointer" onClick="{{ onHSortHandler }}">handler{{ hArrowHandler }}</th>
+                    <th style="min-width:190px">queues</th>
+                    <th class="k-num" style="width:52px;cursor:pointer" onClick="{{ onHSortTotal }}">jobs{{ hArrowTotal }}</th>
+                    <th class="k-num" style="width:56px">backlog</th>
+                    <th class="k-num" style="width:56px;cursor:pointer" onClick="{{ onHSortRunning }}">running{{ hArrowRunning }}</th>
+                    <th class="k-num" style="width:56px">retrying</th>
+                    <th class="k-num" style="width:48px;cursor:pointer" onClick="{{ onHSortDead }}">dead{{ hArrowDead }}</th>
+                    <th class="k-num" style="width:76px;cursor:pointer" onClick="{{ onHSortRate }}">success{{ hArrowRate }}</th>
+                    <th class="k-num" style="width:70px;cursor:pointer" onClick="{{ onHSortAvg }}">avg run{{ hArrowAvg }}</th>
+                    <th class="k-num" style="width:74px">last activity</th>
+                  </tr></thead>
+                  <tbody>
+                    <sc-for list="{{ handlerRows }}" as="h" hint-placeholder-count="8">
+                      <tr class="k-click" onClick="{{ h.onOpen }}" tabIndex="{{ 0 }}" onKeyDown="{{ h.onKey }}" title="Open handler detail">
+                        <td>
+                          <div class="k-mono" style="font-size:13px;color:var(--color-text)">{{ h.handler }}</div>
+                          <sc-if value="{{ h.unhealthy }}" hint-placeholder-val="{{ false }}">
+                            <span style="{{ h.unhealthyStyle }}">{{ h.unhealthyLabel }}</span>
+                          </sc-if>
+                        </td>
+                        <td>
+                          <div style="display:flex;gap:5px;align-items:center;white-space:nowrap">
+                            <sc-for list="{{ h.queuesShown }}" as="q" hint-placeholder-count="2">
+                              <span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span>
+                            </sc-for>
+                            <sc-if value="{{ h.queuesMore }}" hint-placeholder-val="{{ false }}">
+                              <span style="font-size:10.5px;color:var(--k-muted)" title="{{ h.queuesAll }}">{{ h.queuesMore }}</span>
+                            </sc-if>
+                          </div>
+                        </td>
+                        <td class="k-num">{{ h.total }}</td>
+                        <td class="k-num" style="color:var(--k-text2)">{{ h.backlog }}</td>
+                        <td class="k-num">{{ h.running }}</td>
+                        <td class="k-num" style="{{ h.retryStyle }}">{{ h.awaiting_retry }}</td>
+                        <td class="k-num" style="{{ h.deadStyle }}">{{ h.dead }}</td>
+                        <td class="k-num"><span style="{{ h.rateStyle }}">{{ h.successRate }}</span></td>
+                        <td class="k-num" style="color:var(--k-text2)">{{ h.avgRun }}</td>
+                        <td class="k-num" style="color:var(--k-text2)" title="{{ h.lastAbs }}">{{ h.lastRel }}</td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ══ WORKERS ══ -->
+    <sc-if value="{{ isWorkers }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <sc-if value="{{ isWorkerDetail }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <div style="font-size:11.5px;color:var(--k-muted);margin-bottom:10px"><a href="/workers" style="text-decoration:none">← Workers</a><span style="margin:0 8px">/</span><span>{{ workerDetailName }}</span></div>
+            <sc-if value="{{ workerNotFound }}" hint-placeholder-val="{{ false }}">
+              <div class="blueprint" style="padding:34px;text-align:center;color:var(--k-muted)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                Worker not found — the registry self-expires, so it may have dropped out since you clicked.
+              </div>
+            </sc-if>
+            <sc-if value="{{ workerFound }}" hint-placeholder-val="{{ false }}">
+              <div>
+                <div class="blueprint" style="padding:16px 20px;margin-bottom:22px">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                    <span style="{{ workerStatusStyle }}">{{ workerStatusLabel }}</span>
+                    <h1 style="font-size:26px;margin:0">{{ workerDetailName }}</h1>
+                    <span class="k-mono" style="font-size:12.5px;color:var(--k-muted)">{{ workerDetailId }}</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px 20px;max-width:820px">
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">subscribed queues</div><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><sc-for list="{{ workerQueueTags }}" as="q" hint-placeholder-count="2"><span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span></sc-for></div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">in_flight</div><div style="font-size:14px">{{ workerInFlight }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">heartbeat · last_seen</div><div style="font-size:14px" title="{{ workerLastSeenAbs }}">{{ workerLastSeenRel }}</div></div>
+                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">started_at · uptime</div><div style="font-size:14px" title="{{ workerStartedAbs }}">{{ workerUptime }}</div></div>
+                  </div>
+                  <div style="margin-top:12px;font-size:11px;color:var(--k-muted);max-width:640px;line-height:1.5">The <span class="k-mono">/workers</span> registry contract only carries live state (queues, in_flight, last_seen, started_at) — no downtime history or log stream. Status and recent activity below are derived client-side from live data and job attempts, not a separate endpoint.</div>
+                </div>
+                <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+                  <h2 style="font-size:19px;margin:0">Executing now</h2>
+                  <span style="font-size:11px;color:var(--k-muted)">{{ workerRunningNote }}</span>
+                </div>
+                <sc-if value="{{ workerIdle }}" hint-placeholder-val="{{ false }}">
+                  <div class="blueprint" style="padding:20px;margin-bottom:22px;color:var(--k-muted);font-size:12.5px">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    Idle — nothing in flight on this worker.
+                  </div>
+                </sc-if>
+                <sc-if value="{{ workerRunningReady }}" hint-placeholder-val="{{ false }}">
+                  <div class="blueprint" style="padding:0;margin-bottom:22px;overflow-x:auto">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    <table class="k-t">
+                      <thead><tr>
+                        <th style="width:120px">id</th>
+                        <th>job</th>
+                        <th>handler</th>
+                        <th style="width:110px">queue</th>
+                        <th class="k-num" style="width:46px">prio</th>
+                        <th class="k-num" style="width:56px">attempt</th>
+                        <th class="k-num" style="width:100px">running for</th>
+                      </tr></thead>
+                      <tbody>
+                        <sc-for list="{{ workerRunningRows }}" as="rj" hint-placeholder-count="2">
+                          <tr class="k-click" onClick="{{ rj.onOpen }}" title="Open job detail">
+                            <td class="k-mono">{{ rj.idShort }}</td>
+                            <td style="font-family:var(--font-heading);font-weight:600;font-size:14.5px">{{ rj.name }}</td>
+                            <td class="k-mono" style="color:var(--k-text2)">{{ rj.handler }}</td>
+                            <td style="color:var(--k-text2)">{{ rj.queue }}</td>
+                            <td class="k-num">{{ rj.priority }}</td>
+                            <td class="k-num" style="color:var(--k-muted)">{{ rj.attempt_no }}</td>
+                            <td class="k-num" style="{{ rj.elapsedStyle }}">{{ rj.elapsed }}</td>
+                          </tr>
+                        </sc-for>
+                      </tbody>
+                    </table>
+                  </div>
+                </sc-if>
+                <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+                  <h2 style="font-size:19px;margin:0">Recent job attempts</h2>
+                  <span style="font-size:11px;color:var(--k-muted)">{{ workerActivityCount }} · derived from job attempt history, most recent first</span>
+                </div>
+                <sc-if value="{{ workerActivityEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div class="blueprint" style="padding:24px;text-align:center;color:var(--k-muted);font-size:12.5px">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    No attempts recorded for this worker yet.
+                  </div>
+                </sc-if>
+                <sc-if value="{{ workerActivityReady }}" hint-placeholder-val="{{ false }}">
+                  <div class="blueprint" style="padding:0;overflow-x:auto">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    <div style="max-height:480px;overflow:auto">
+                      <table class="k-t">
+                        <thead><tr>
+                          <th>job</th>
+                          <th>queue</th>
+                          <th class="k-num" style="width:40px">attempt</th>
+                          <th style="width:104px">outcome</th>
+                          <th class="k-num" style="width:86px">started</th>
+                          <th class="k-num" style="width:78px">duration</th>
+                        </tr></thead>
+                        <tbody>
+                          <sc-for list="{{ workerActivityRows }}" as="a" hint-placeholder-count="8">
+                            <tr class="k-click" onClick="{{ a.onOpen }}" title="Open job detail">
+                              <td style="font-family:var(--font-heading);font-weight:600;font-size:14px">{{ a.job_name }}</td>
+                              <td style="color:var(--k-text2)">{{ a.queue }}</td>
+                              <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
+                              <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
+                              <td class="k-num" style="color:var(--k-text2)" title="{{ a.startedAbs }}">{{ a.startedRel }}</td>
+                              <td class="k-num">{{ a.duration }}</td>
+                            </tr>
+                          </sc-for>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+        <sc-if value="{{ isWorkerList }}" hint-placeholder-val="{{ true }}">
+        <div>
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:16px">
+          <h1 style="font-size:27px;margin:0">Workers</h1>
+          <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">GET /workers</span>
+        </div>
+        <sc-if value="{{ workersLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:34px;text-align:center;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            loading /workers
+          </div>
+        </sc-if>
+        <sc-if value="{{ workersError }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ workersErrorCode }}</div>
+            <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ workersError }}</div>
+            <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ workersEmpty }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:36px;text-align:center">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:17px;font-family:var(--font-heading);font-weight:600">No workers registered</div>
+            <div style="font-size:12.5px;color:var(--k-muted);margin-top:6px">The registry self-expires, so an idle fleet shows nothing here.</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ workersReady }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:0;overflow-x:auto">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <table class="k-t">
+              <thead><tr>
+                <th style="width:150px">name</th>
+                <th style="width:110px">id</th>
+                <th>queues</th>
+                <th style="min-width:230px">executing now</th>
+                <th class="k-num" style="width:90px">in_flight</th>
+                <th class="k-num" style="width:120px">last_seen</th>
+                <th class="k-num" style="width:120px">uptime</th>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{ workerRows }}" as="w" hint-placeholder-count="6">
+                  <tr class="k-click" onClick="{{ w.onOpen }}" title="Open worker detail">
+                    <td style="font-family:var(--font-heading);font-weight:600;font-size:14.5px">{{ w.name }}</td>
+                    <td class="k-mono" style="font-size:12px;color:var(--k-text2)">{{ w.id }}</td>
+                    <td>
+                      <div style="display:flex;gap:5px;flex-wrap:wrap">
+                        <sc-for list="{{ w.queues }}" as="q" hint-placeholder-count="2">
+                          <span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span>
+                        </sc-for>
+                      </div>
+                    </td>
+                    <td>
+                      <sc-if value="{{ w.idle }}" hint-placeholder-val="{{ false }}">
+                        <span style="font-size:12px;color:var(--k-faint2)">idle</span>
+                      </sc-if>
+                      <sc-if value="{{ w.busy }}" hint-placeholder-val="{{ true }}">
+                        <button class="btn btn-ghost" onClick="{{ w.onToggleRunning }}" aria-expanded="{{ w.expanded }}" style="display:flex;align-items:center;gap:7px;padding:2px 8px 2px 6px;min-height:24px;font-size:12.5px">
+                          <span style="width:9px;display:inline-block;color:var(--k-muted)">{{ w.expandArrow }}</span>
+                          <span style="font-family:var(--font-heading);font-weight:600">{{ w.runningLabel }}</span>
+                          <span style="font-size:11px;color:var(--k-text2)">{{ w.oldestLabel }}</span>
+                        </button>
+                      </sc-if>
+                    </td>
+                    <td class="k-num">{{ w.in_flight }}</td>
+                    <td class="k-num" style="color:var(--k-text2)" title="{{ w.lastSeenAbs }}">{{ w.lastSeenRel }}</td>
+                    <td class="k-num" style="color:var(--k-text2)" title="{{ w.startedAbs }}">{{ w.uptime }}</td>
+                  </tr>
+                  <sc-if value="{{ w.expanded }}" hint-placeholder-val="{{ false }}">
+                    <tr>
+                      <td colspan="7" style="background:var(--color-surface);padding:8px 14px 12px 14px">
+                        <div style="font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">in flight on {{ w.name }} — click a job to open it</div>
+                        <table class="k-t" style="background:transparent">
+                          <thead><tr>
+                            <th style="width:118px">id</th>
+                            <th>job</th>
+                            <th>handler</th>
+                            <th style="width:104px">queue</th>
+                            <th class="k-num" style="width:46px">prio</th>
+                            <th class="k-num" style="width:56px">attempt</th>
+                            <th class="k-num" style="width:96px">running for</th>
+                          </tr></thead>
+                          <tbody>
+                            <sc-for list="{{ w.running }}" as="rj" hint-placeholder-count="2">
+                              <tr class="k-click" onClick="{{ rj.onOpen }}" title="Open job detail">
+                                <td class="k-mono">{{ rj.idShort }}</td>
+                                <td style="font-family:var(--font-heading);font-weight:600;font-size:14px">{{ rj.name }}</td>
+                                <td class="k-mono" style="color:var(--k-text2)">{{ rj.handler }}</td>
+                                <td style="color:var(--k-text2)">{{ rj.queue }}</td>
+                                <td class="k-num">{{ rj.priority }}</td>
+                                <td class="k-num" style="color:var(--k-muted)">{{ rj.attempt_no }}</td>
+                                <td class="k-num" style="{{ rj.elapsedStyle }}">{{ rj.elapsed }}</td>
+                              </tr>
+                            </sc-for>
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  </sc-if>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </sc-if>
+        </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ══ SUBMIT ══ -->
+    <sc-if value="{{ isSubmit }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:16px">
+          <h1 style="font-size:27px;margin:0">Submit job</h1>
+          <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">POST /jobs</span>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(320px,440px) minmax(280px,1fr);gap:30px;align-items:start;max-width:1080px">
+          <div class="blueprint" style="padding:16px 18px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="display:flex;flex-direction:column;gap:13px">
+              <div class="field"><label>name</label><input class="input" value="{{ form.name }}" onChange="{{ onFormName }}" placeholder="send_email"></div>
+              <div class="field"><label>queue</label>
+                <select class="input" value="{{ form.queue }}" onChange="{{ onFormQueue }}">
+                  <sc-for list="{{ formQueueOptions }}" as="q" hint-placeholder-count="4"><option value="{{ q }}">{{ q }}</option></sc-for>
+                </select>
+              </div>
+              <div class="field"><label>handler — required, must not be empty</label>
+                <input class="input k-mono" style="font-size:12.5px" value="{{ form.handler }}" onChange="{{ onFormHandler }}" placeholder="email.send" list="kairos-handlers">
+                <datalist id="kairos-handlers">
+                  <sc-for list="{{ formHandlerOptions }}" as="h" hint-placeholder-count="4"><option value="{{ h }}"></option></sc-for>
+                </datalist>
+              </div>
+              <div class="field"><label>priority — 1 is highest, 10 lowest (default 5)</label>
+                <input class="input" type="number" min="1" max="10" value="{{ form.priority }}" onChange="{{ onFormPriority }}">
+              </div>
+              <div class="field"><label>schedule</label>
+                <div style="display:flex;gap:6px;margin-top:2px">
+                  <sc-for list="{{ modeChips }}" as="chip" hint-placeholder-count="2">
+                    <button onClick="{{ chip.onPick }}" aria-pressed="{{ chip.pressed }}" style="{{ chip.style }}">{{ chip.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <sc-if value="{{ formIsCron }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:13px">
+                  <div class="field"><label>cron expression · 5 fields, UTC</label>
+                    <select class="input" style="margin-bottom:6px" value="{{ form.cronPreset }}" onChange="{{ onFormCronPreset }}">
+                      <sc-for list="{{ cronPresetOptions }}" as="p" hint-placeholder-count="6"><option value="{{ p.value }}">{{ p.label }}</option></sc-for>
+                    </select>
+                    <input class="input k-mono" style="font-size:12.5px" value="{{ form.cron }}" onChange="{{ onFormCron }}" placeholder="*/5 * * * *">
+                    <sc-if value="{{ cronError }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:11.5px;color:var(--k-crit-fg);margin-top:5px">{{ cronError }}</div>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ formHasWindow }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:12px;flex-wrap:wrap">
+                  <div class="field" style="flex:1;min-width:170px"><label>starts_at · UTC · required</label>
+                    <input class="input k-mono" style="font-size:12.5px" type="datetime-local" value="{{ form.startsAt }}" onChange="{{ onFormStarts }}">
+                  </div>
+                  <div class="field" style="flex:1;min-width:170px"><label>ends_at · UTC, optional</label>
+                    <input class="input k-mono" style="font-size:12.5px" type="datetime-local" value="{{ form.endsAt }}" onChange="{{ onFormEnds }}">
+                  </div>
+                </div>
+              </sc-if>
+              <div class="field"><label>payload · JSON</label>
+                <textarea class="input k-mono" style="min-height:150px;font-size:12.5px" value="{{ form.payload }}" onChange="{{ onFormPayload }}"></textarea>
+                <sc-if value="{{ payloadError }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:11.5px;color:var(--k-crit-fg);margin-top:5px">{{ payloadError }}</div>
+                </sc-if>
+              </div>
+              <div class="field"><label>Idempotency-Key · optional header</label>
+                <input class="input k-mono" style="font-size:12.5px" value="{{ form.idem }}" onChange="{{ onFormIdem }}" placeholder="leave blank to omit the header">
+              </div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <button class="btn btn-primary" onClick="{{ onSubmit }}" disabled="{{ submitting }}">{{ submitLabel }}</button>
+                <button class="btn btn-ghost" onClick="{{ onFormatPayload }}">format JSON</button>
+              </div>
+              <sc-if value="{{ submitError }}" hint-placeholder-val="{{ false }}">
+                <div style="background:var(--k-crit-bg);border:1px solid var(--k-crit-border);padding:9px 11px">
+                  <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg)">{{ submitErrorCode }}</div>
+                  <div style="font-size:12.5px;color:var(--k-crit-fg2)">{{ submitError }}</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ createdId }}" hint-placeholder-val="{{ false }}">
+                <div style="background:var(--k-ok-bg);border:1px solid var(--k-ok-border);padding:10px 12px">
+                  <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-ok-fg)">201 created · state pending</div>
+                  <a href="{{ createdHref }}" class="k-mono" style="font-size:12.5px">{{ createdId }} →</a>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div class="blueprint" style="padding:14px 16px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:8px">request preview</div>
+            <pre class="k-mono" style="margin:0;background:var(--color-surface);border:1px solid var(--color-divider);padding:11px;overflow:auto;font-size:12px;line-height:1.55">{{ requestPreview }}</pre>
+            <sc-if value="{{ formIsCron }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:14px">
+                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">first runs</div>
+                <sc-if value="{{ previewEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:12px;color:var(--k-crit-fg)">This expression never fires inside the window — the API rejects it with 422.</div>
+                </sc-if>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <sc-for list="{{ cronPreviewRows }}" as="p" hint-placeholder-count="3">
+                    <div class="k-mono" style="font-size:12px;display:flex;gap:10px">
+                      <span>{{ p.abs }}</span>
+                      <span style="color:var(--k-muted)">in {{ p.rel }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="font-size:11px;color:var(--k-muted);margin-top:8px;line-height:1.5">Missed slots are never backfilled: after downtime the schedule fires once, at the next slot. Runs cannot overlap — a slow occurrence skips the slots it covers.</div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <div style="margin-top:34px;padding-top:12px;border-top:1px solid var(--color-divider);display:flex;gap:20px;flex-wrap:wrap;font-size:10.5px;color:var(--k-faint2);letter-spacing:.04em">
+      <span>keys: <b style="color:var(--k-text2)">g o</b> overview · <b style="color:var(--k-text2)">g q</b> queues · <b style="color:var(--k-text2)">g j</b> jobs · <b style="color:var(--k-text2)">g c</b> schedules · <b style="color:var(--k-text2)">g d</b> docs · <b style="color:var(--k-text2)">g h</b> handlers · <b style="color:var(--k-text2)">g w</b> workers · <b style="color:var(--k-text2)">g s</b> submit · <b style="color:var(--k-text2)">j / k</b> page · <b style="color:var(--k-text2)">r</b> refresh</span>
+      <span style="margin-left:auto">poll 3s · shared interval · paused when tab hidden</span>
+    </div>
+  </div>
+  </div>
+</div>
+</template>
+<script src="/runtime.js"></script>
+<script src="/app.js"></script>
+<script>__bootDashboard({ rowsPerPage: 25, pollSeconds: 3, simulate: "normal", conflictOnWrite: false });</script>
+</body>
+</html>
