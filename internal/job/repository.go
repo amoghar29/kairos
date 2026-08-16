@@ -32,7 +32,6 @@ func New(q db.Querier) *Repository {
 	return &Repository{q: q}
 }
 
-
 func (r *Repository) Create(ctx context.Context, arg db.CreateJobParams) (job db.Job, created bool, err error) {
 	job, err = r.q.CreateJob(ctx, arg)
 	if err == nil {
@@ -211,8 +210,6 @@ func (r *Repository) ClaimForExecution(ctx context.Context, id pgtype.UUID, work
 	}
 	return db.ClaimJobForExecutionRow{}, ErrConflict
 }
-
-
 
 func (r *Repository) RefreshHeartbeats(ctx context.Context, claims []JobClaim, staleDelta pgtype.Interval) ([]pgtype.UUID, error) {
 	if len(claims) == 0 {

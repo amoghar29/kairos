@@ -26,15 +26,15 @@ const (
 )
 
 type CreateJobRequest struct {
-	Name           string          `json:"name"`
-	Queue          string          `json:"queue"`
-	Handler        string          `json:"handler"`
-	Payload        json.RawMessage `json:"payload"`
-	Priority       *int32          `json:"priority"`
-	MaxRetries     *int32          `json:"max_retries"`
-	Cron           string          `json:"cron"`
-	StartsAt       *time.Time      `json:"starts_at"`
-	EndsAt         *time.Time      `json:"ends_at"`
+	Name       string          `json:"name"`
+	Queue      string          `json:"queue"`
+	Handler    string          `json:"handler"`
+	Payload    json.RawMessage `json:"payload"`
+	Priority   *int32          `json:"priority"`
+	MaxRetries *int32          `json:"max_retries"`
+	Cron       string          `json:"cron"`
+	StartsAt   *time.Time      `json:"starts_at"`
+	EndsAt     *time.Time      `json:"ends_at"`
 }
 
 func validateSchedule(cronExpr string, startsAt, endsAt *time.Time) map[string]string {

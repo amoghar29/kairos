@@ -15,7 +15,6 @@ func ValidateExpression(expr string) error {
 	return nil
 }
 
-
 func NextRun(expr string, after pgtype.Timestamptz) (pgtype.Timestamptz, error) {
 	schedule, err := cron.ParseStandard(expr)
 	if err != nil {

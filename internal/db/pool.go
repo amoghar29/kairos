@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-
 func NewPool(ctx context.Context, cfg config.PostgresConfig) (*pgxpool.Pool, error) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {

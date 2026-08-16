@@ -42,7 +42,6 @@ type Queue struct {
 
 type Queues []Queue
 
-
 type Duration time.Duration
 
 func (d *Duration) UnmarshalYAML(value *yaml.Node) error {

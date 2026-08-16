@@ -5,15 +5,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
-	"strings"
-	"time"
 	"github.com/amoghar29/kairos/internal/config"
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
 	"github.com/amoghar29/kairos/internal/worker"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"log/slog"
+	"strings"
+	"time"
 )
 
 type (

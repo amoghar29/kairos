@@ -10,7 +10,6 @@ import (
 
 const lostClaimResult = "claim lost while executing: the job was reclaimed or finished elsewhere"
 
-
 type InflightJob struct {
 	Name      string             `json:"name"`
 	ID        pgtype.UUID        `json:"id"`

@@ -12,8 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const maxRequestBody = 1 << 20 
-
+const maxRequestBody = 1 << 20
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)

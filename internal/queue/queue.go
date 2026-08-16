@@ -1,4 +1,3 @@
-
 package queue
 
 const keyPrefix = "queue:"

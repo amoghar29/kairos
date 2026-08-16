@@ -20,7 +20,6 @@ const (
 	CodeInternal         = "internal_error"
 )
 
-
 func (app *Application) writeJSON(w http.ResponseWriter, r *http.Request, status int, data any) {
 	body, err := json.Marshal(data)
 	if err != nil {
@@ -55,7 +54,6 @@ func (app *Application) notFound(w http.ResponseWriter, r *http.Request) {
 func (app *Application) conflict(w http.ResponseWriter, r *http.Request, message string) {
 	app.writeError(w, r, http.StatusConflict, CodeConflict, message, nil)
 }
-
 
 func (app *Application) serverError(w http.ResponseWriter, r *http.Request, err error) {
 	app.logger(r).Error("internal server error", slog.Any("error", err))
