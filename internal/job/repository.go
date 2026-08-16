@@ -1,7 +1,6 @@
 package job
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,9 +13,8 @@ import (
 )
 
 var (
-	ErrNotFound             = errors.New("job not found")
-	ErrConflict             = errors.New("job was modified or is not in a valid state for this transition")
-	ErrIdempotencyCollision = errors.New("idempotency key already used by a different job")
+	ErrNotFound = errors.New("job not found")
+	ErrConflict = errors.New("job was modified or is not in a valid state for this transition")
 )
 
 const uniqueViolation = "23505"
@@ -34,6 +32,7 @@ func NewJobRepository(q db.Querier) *JobRepository {
 	return &JobRepository{q: q}
 }
 
+
 func (r *JobRepository) Create(ctx context.Context, arg db.CreateJobParams) (job db.Job, created bool, err error) {
 	job, err = r.q.CreateJob(ctx, arg)
 	if err == nil {
@@ -46,16 +45,8 @@ func (r *JobRepository) Create(ctx context.Context, arg db.CreateJobParams) (job
 	}
 
 	existing, err := r.q.GetJobByIdempotencyKey(ctx, arg.IdempotencyKey)
-
 	if err != nil {
 		return db.Job{}, false, fmt.Errorf("get job by idempotency key: %w", err)
-	}
-	if existing.Name != arg.Name ||
-		existing.Queue != arg.Queue ||
-		existing.Handler != arg.Handler ||
-		existing.Priority != arg.Priority ||
-		!bytes.Equal(existing.Payload, arg.Payload) {
-		return db.Job{}, false, ErrIdempotencyCollision
 	}
 	return existing, false, nil
 }
@@ -99,6 +90,24 @@ func (r *JobRepository) Cancel(ctx context.Context, id pgtype.UUID, version int3
 func (r *JobRepository) Rerun(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
 	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
 		return r.q.RerunDeadJob(ctx, db.RerunDeadJobParams{ID: id, Version: version})
+	})
+}
+
+func (r *JobRepository) Pause(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
+		return r.q.PauseJob(ctx, db.PauseJobParams{ID: id, Version: version})
+	})
+}
+
+func (r *JobRepository) Resume(ctx context.Context, id pgtype.UUID, version int32) (db.Job, error) {
+	return r.guardedUpdate(ctx, id, func() (db.Job, error) {
+		return r.q.ResumeJob(ctx, db.ResumeJobParams{ID: id, Version: version})
+	})
+}
+
+func (r *JobRepository) Reschedule(ctx context.Context, arg db.RescheduleJobParams) (db.Job, error) {
+	return r.guardedUpdate(ctx, arg.ID, func() (db.Job, error) {
+		return r.q.RescheduleJob(ctx, arg)
 	})
 }
 
@@ -174,6 +183,14 @@ func (r *JobRepository) UpdateLostJob(ctx context.Context, result string) ([]pgt
 	return lost, nil
 }
 
+func (r *JobRepository) FinalizeExpiredJobs(ctx context.Context) ([]pgtype.UUID, error) {
+	expired, err := r.q.FinalizeExpiredJobs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("finalize expired jobs: %w", err)
+	}
+	return expired, nil
+}
+
 func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, workerID string, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
 	// worker_id is nullable only so a lost dispatch can record an attempt with no worker.
 	// A claim always has one, so callers keep passing a plain string.
@@ -218,8 +235,12 @@ func (r *JobRepository) RefreshHeartbeats(ctx context.Context, claims []JobClaim
 	return renewed, nil
 }
 
-func (r *JobRepository) CompleteJob(ctx context.Context, id pgtype.UUID, version int32) (bool, error) {
-	rows, err := r.q.UpdateJobCompletion(ctx, db.UpdateJobCompletionParams{ID: id, Version: version})
+func (r *JobRepository) CompleteJob(ctx context.Context, id pgtype.UUID, version int32, nextRunAt pgtype.Timestamptz) (bool, error) {
+	rows, err := r.q.UpdateJobCompletion(ctx, db.UpdateJobCompletionParams{
+		ID:        id,
+		Version:   version,
+		NextRunAt: nextRunAt,
+	})
 	if err != nil {
 		return false, fmt.Errorf("complete job %s: %w", id, err)
 	}

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 	"github.com/amoghar29/kairos/internal/config"
+	"github.com/amoghar29/kairos/internal/cron"
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -29,6 +30,48 @@ type CreateJobRequest struct {
 	Priority       *int32          `json:"priority"`
 	MaxRetries     *int32          `json:"max_retries"`
 	IdempotencyKey string          `json:"idempotency_key"`
+	Cron           string          `json:"cron"`
+	StartsAt       *time.Time      `json:"starts_at"`
+	EndsAt         *time.Time      `json:"ends_at"`
+}
+
+func validateSchedule(cronExpr string, startsAt, endsAt *time.Time) map[string]string {
+	fields := map[string]string{}
+	now := time.Now().UTC()
+
+	if cronExpr != "" {
+		if err := cron.ValidateExpression(cronExpr); err != nil {
+			fields["cron"] = "must be a valid cron expression"
+		}
+		if startsAt == nil {
+			fields["starts_at"] = "must be provided for a cron job"
+		}
+	}
+
+	if startsAt != nil && !startsAt.After(now) {
+		fields["starts_at"] = "must be in the future"
+	}
+
+	if endsAt != nil {
+		switch {
+		case !endsAt.After(now):
+			fields["ends_at"] = "must be in the future"
+		case startsAt != nil && !endsAt.After(*startsAt):
+			fields["ends_at"] = "must be after starts_at"
+		}
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+func timestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: t.UTC(), Valid: true}
 }
 
 func (r *CreateJobRequest) Validate(queues config.Queues) map[string]string {
@@ -71,6 +114,10 @@ func (r *CreateJobRequest) Validate(queues config.Queues) map[string]string {
 		fields["payload"] = "must be valid JSON"
 	}
 
+	for name, msg := range validateSchedule(r.Cron, r.StartsAt, r.EndsAt) {
+		fields[name] = msg
+	}
+
 	if len(fields) == 0 {
 		return nil
 	}
@@ -94,7 +141,7 @@ func (r *CreateJobRequest) ToParams() db.CreateJobParams {
 		payload = []byte("{}")
 	}
 
-	return db.CreateJobParams{
+	arg := db.CreateJobParams{
 		Name:           r.Name,
 		Queue:          r.Queue,
 		Handler:        r.Handler,
@@ -102,7 +149,23 @@ func (r *CreateJobRequest) ToParams() db.CreateJobParams {
 		Priority:       priority,
 		MaxRetries:     maxRetries,
 		IdempotencyKey: pgtype.Text{String: r.IdempotencyKey, Valid: r.IdempotencyKey != ""},
+		JobType:        db.JobTypeAdhoc,
+		StartsAt:       timestamptz(r.StartsAt),
+		EndsAt:         timestamptz(r.EndsAt),
+		NextCheckAt:    pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
 	}
+
+	if r.StartsAt != nil {
+		arg.NextCheckAt = timestamptz(r.StartsAt)
+	}
+
+	if r.Cron != "" {
+		arg.JobType = db.JobTypeCron
+		arg.CronExpr = pgtype.Text{String: r.Cron, Valid: true}
+		arg.NextRunAt = arg.StartsAt
+	}
+
+	return arg
 }
 
 type VersionRequest struct {
@@ -114,6 +177,72 @@ func (r *VersionRequest) Validate() map[string]string {
 		return map[string]string{"version": "must be a positive integer"}
 	}
 	return nil
+}
+
+type PauseRequest struct {
+	Version int32 `json:"version"`
+	Paused  *bool `json:"paused"`
+}
+
+func (r *PauseRequest) Validate() map[string]string {
+	fields := map[string]string{}
+	if r.Version < 1 {
+		fields["version"] = "must be a positive integer"
+	}
+	if r.Paused == nil {
+		fields["paused"] = "must be provided"
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+type RescheduleRequest struct {
+	Version  int32      `json:"version"`
+	Cron     string     `json:"cron"`
+	StartsAt *time.Time `json:"starts_at"`
+	EndsAt   *time.Time `json:"ends_at"`
+}
+
+func (r *RescheduleRequest) Validate() map[string]string {
+	fields := map[string]string{}
+	if r.Version < 1 {
+		fields["version"] = "must be a positive integer"
+	}
+
+	for name, msg := range validateSchedule(r.Cron, r.StartsAt, r.EndsAt) {
+		fields[name] = msg
+	}
+
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+func (r *RescheduleRequest) ToParams(id pgtype.UUID) db.RescheduleJobParams {
+	arg := db.RescheduleJobParams{
+		ID:          id,
+		Version:     r.Version,
+		JobType:     db.JobTypeAdhoc,
+		StartsAt:    timestamptz(r.StartsAt),
+		EndsAt:      timestamptz(r.EndsAt),
+		NextCheckAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+	}
+
+	if r.StartsAt != nil {
+		arg.NextCheckAt = timestamptz(r.StartsAt)
+	}
+
+	if r.Cron != "" {
+		arg.JobType = db.JobTypeCron
+		arg.CronExpr = pgtype.Text{String: r.Cron, Valid: true}
+		arg.NextRunAt = arg.StartsAt
+	}
+
+	return arg
 }
 
 type JobResponse struct {
@@ -129,6 +258,11 @@ type JobResponse struct {
 	Version        int32           `json:"version"`
 	NextCheckAt    *time.Time      `json:"next_check_at"`
 	IdempotencyKey *string         `json:"idempotency_key"`
+	JobType        string          `json:"job_type"`
+	Cron           *string         `json:"cron"`
+	NextRunAt      *time.Time      `json:"next_run_at"`
+	StartsAt       *time.Time      `json:"starts_at"`
+	EndsAt         *time.Time      `json:"ends_at"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
@@ -147,6 +281,11 @@ func NewJobResponse(j db.Job) JobResponse {
 		Version:        j.Version,
 		NextCheckAt:    timePtr(j.NextCheckAt),
 		IdempotencyKey: stringPtr(j.IdempotencyKey),
+		JobType:        string(j.JobType),
+		Cron:           stringPtr(j.CronExpr),
+		NextRunAt:      timePtr(j.NextRunAt),
+		StartsAt:       timePtr(j.StartsAt),
+		EndsAt:         timePtr(j.EndsAt),
 		CreatedAt:      utc(j.CreatedAt),
 		UpdatedAt:      utc(j.UpdatedAt),
 	}

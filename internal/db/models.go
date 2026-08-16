@@ -92,6 +92,7 @@ const (
 	JobStateDead          JobState = "dead"
 	JobStateCancelled     JobState = "cancelled"
 	JobStateExpired       JobState = "expired"
+	JobStatePaused        JobState = "paused"
 )
 
 func (e *JobState) Scan(src interface{}) error {
@@ -138,7 +139,8 @@ func (e JobState) Valid() bool {
 		JobStateSuccess,
 		JobStateDead,
 		JobStateCancelled,
-		JobStateExpired:
+		JobStateExpired,
+		JobStatePaused:
 		return true
 	}
 	return false
@@ -154,6 +156,7 @@ func AllJobStateValues() []JobState {
 		JobStateDead,
 		JobStateCancelled,
 		JobStateExpired,
+		JobStatePaused,
 	}
 }
 
@@ -300,7 +303,7 @@ type Job struct {
 	CronExpr       pgtype.Text        `json:"cron_expr"`
 	StartsAt       pgtype.Timestamptz `json:"starts_at"`
 	EndsAt         pgtype.Timestamptz `json:"ends_at"`
-	LastRunAt      pgtype.Timestamptz `json:"last_run_at"`
+	NextRunAt      pgtype.Timestamptz `json:"next_run_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }

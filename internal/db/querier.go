@@ -16,6 +16,7 @@ type Querier interface {
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateJobAttempt(ctx context.Context, arg CreateJobAttemptParams) (pgtype.UUID, error)
 	DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error)
+	FinalizeExpiredJobs(ctx context.Context) ([]pgtype.UUID, error)
 	GetAttemptLogs(ctx context.Context, arg GetAttemptLogsParams) ([]GetAttemptLogsRow, error)
 	GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDueJobsRow, error)
 	GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsByJobIdParams) ([]JobAttempt, error)
@@ -25,10 +26,13 @@ type Querier interface {
 	// Fetch LIMIT+1 in the app layer; if len(rows) > limit, has_more=true, trim the extra row.
 	ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, error)
 	MarkQueued(ctx context.Context, arg MarkQueuedParams) ([]pgtype.UUID, error)
+	PauseJob(ctx context.Context, arg PauseJobParams) (Job, error)
 	ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) ([]Job, error)
 	RecordJobExecutionFailure(ctx context.Context, arg RecordJobExecutionFailureParams) (int64, error)
 	RefreshHeartBeats(ctx context.Context, arg RefreshHeartBeatsParams) ([]pgtype.UUID, error)
 	RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job, error)
+	RescheduleJob(ctx context.Context, arg RescheduleJobParams) (Job, error)
+	ResumeJob(ctx context.Context, arg ResumeJobParams) (Job, error)
 	SupersedeOpenAttempts(ctx context.Context, jobIds []pgtype.UUID) error
 	UpdateJobAttemptExecutionCompletion(ctx context.Context, arg UpdateJobAttemptExecutionCompletionParams) (int64, error)
 	UpdateJobCompletion(ctx context.Context, arg UpdateJobCompletionParams) (int64, error)

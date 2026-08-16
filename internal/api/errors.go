@@ -13,12 +13,11 @@ type ErrorResponse struct {
 }
 
 const (
-	CodeInvalidJSON          = "invalid_json"
-	CodeValidationFailed     = "validation_failed"
-	CodeIdempotencyCollision = "idempotency_collision"
-	CodeNotFound             = "not_found"
-	CodeConflict             = "conflict"
-	CodeInternal             = "internal_error"
+	CodeInvalidJSON      = "invalid_json"
+	CodeValidationFailed = "validation_failed"
+	CodeNotFound         = "not_found"
+	CodeConflict         = "conflict"
+	CodeInternal         = "internal_error"
 )
 
 
@@ -55,11 +54,6 @@ func (app *Application) notFound(w http.ResponseWriter, r *http.Request) {
 
 func (app *Application) conflict(w http.ResponseWriter, r *http.Request, message string) {
 	app.writeError(w, r, http.StatusConflict, CodeConflict, message, nil)
-}
-
-func (app *Application) idempotencyCollision(w http.ResponseWriter, r *http.Request) {
-	app.writeError(w, r, http.StatusConflict, CodeIdempotencyCollision,
-		"a different job already exists with this idempotency key", nil)
 }
 
 

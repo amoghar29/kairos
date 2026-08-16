@@ -84,6 +84,10 @@ func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
+	if err := jc.finalizeExpiredJobs(ctx); err != nil {
+		return 0, err
+	}
+
 	jobs, err := jc.claimDue(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("claim due jobs: %w", err)
@@ -162,6 +166,20 @@ func (jc *JobConsumer) updateLostJobs(ctx context.Context) error {
 	}
 
 	jc.logger.Info("requeued jobs past their claim deadline", slog.Int("count", len(lost)))
+
+	return nil
+}
+
+func (jc *JobConsumer) finalizeExpiredJobs(ctx context.Context) error {
+	expired, err := jc.jobRepository.FinalizeExpiredJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("finalize expired jobs: %w", err)
+	}
+	if len(expired) == 0 {
+		return nil
+	}
+
+	jc.logger.Info("expired jobs past their end date", slog.Int("count", len(expired)))
 
 	return nil
 }

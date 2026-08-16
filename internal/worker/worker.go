@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/amoghar29/kairos/internal/cron"
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
 	"github.com/amoghar29/kairos/internal/queue"
@@ -282,6 +283,20 @@ func (w *WorkerService) executeJob(ctx context.Context, jobID pgtype.UUID) {
 	w.recordOutcome(ctx, claimed, result, runErr)
 }
 
+func (w *WorkerService) nextRun(claimed db.ClaimJobForExecutionRow) pgtype.Timestamptz {
+	if claimed.JobType != db.JobTypeCron {
+		return pgtype.Timestamptz{}
+	}
+
+	now := pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
+	next, err := cron.NextRun(claimed.CronExpr.String, now)
+	if err != nil {
+		w.log.Error("compute next cron run", "job_id", claimed.ID, "cron", claimed.CronExpr.String, "err", err)
+		return pgtype.Timestamptz{}
+	}
+	return next
+}
+
 func (w *WorkerService) recordOutcome(ctx context.Context, claimed db.ClaimJobForExecutionRow, result string, runErr error) {
 	// Detached: this runs *because* the context ended, so inheriting its cancellation
 	// would mean a job that finished during shutdown never records that it did, and gets
@@ -300,7 +315,7 @@ func (w *WorkerService) recordOutcome(ctx context.Context, claimed db.ClaimJobFo
 	}
 
 	if runErr == nil {
-		applied, err := w.jobRepo.CompleteJob(ctx, claimed.ID, claimed.Version)
+		applied, err := w.jobRepo.CompleteJob(ctx, claimed.ID, claimed.Version, w.nextRun(claimed))
 		if err != nil {
 			w.log.Error("mark job success", "job_id", claimed.ID, "err", err)
 		} else if !applied {

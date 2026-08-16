@@ -17,7 +17,8 @@ CREATE TYPE job_state AS ENUM (
     'success',
     'dead',
     'cancelled',
-    'expired'
+    'expired',
+    'paused'
 );
 
 CREATE TYPE job_type AS ENUM('adhoc','cron');
@@ -75,10 +76,12 @@ CREATE TABLE jobs (
         ends_at IS NULL OR starts_at IS NULL OR ends_at > starts_at
     ),
 
-CONSTRAINT next_check_matches_state CHECK (
-        (state IN ('success', 'dead', 'cancelled', 'expired') AND next_check_at IS NULL)
+    CONSTRAINT next_check_matches_state CHECK (
+        (state IN ('success', 'dead', 'cancelled', 'expired', 'paused')
+            AND next_check_at IS NULL)
         OR
-        (state NOT IN ('success', 'dead', 'cancelled', 'expired') AND next_check_at IS NOT NULL)
+        (state NOT IN ('success', 'dead', 'cancelled', 'expired', 'paused')
+            AND next_check_at IS NOT NULL)
     )
 
 );
@@ -115,5 +118,6 @@ DROP TABLE IF EXISTS job_attempts;
 DROP TABLE IF EXISTS jobs;
 DROP TYPE IF EXISTS log_level;
 DROP TYPE IF EXISTS attempt_outcome;
+DROP TYPE IF EXISTS job_type;
 DROP TYPE IF EXISTS job_state;
 DROP FUNCTION IF EXISTS set_updated_at();

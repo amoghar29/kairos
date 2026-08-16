@@ -1,9 +1,9 @@
 -- name: CreateJob :one
 INSERT INTO jobs
     (name, queue, payload, handler, priority, max_retries, next_check_at, idempotency_key,
-     job_type, cron_expr, starts_at, ends_at)
+     job_type, cron_expr, next_run_at, starts_at, ends_at)
 VALUES (@name, @queue, @payload, @handler, @priority, @max_retries, @next_check_at,
-        @idempotency_key, @job_type, @cron_expr, @starts_at, @ends_at)
+        @idempotency_key, @job_type, @cron_expr, @next_run_at, @starts_at, @ends_at)
 RETURNING *;
 
 -- name: GetJobById :one
@@ -29,15 +29,16 @@ ranked AS (
     SELECT j.*,
         ROW_NUMBER() OVER (
             PARTITION BY j.queue
-            ORDER BY (j.priority + sqlc.arg(aging_rate)::float * extract(epoch from j.created_at)) ASC,
-                     j.created_at ASC
+            ORDER BY (j.priority + sqlc.arg(aging_rate)::float
+                      * extract(epoch from COALESCE(j.next_run_at, j.created_at))) ASC,
+                     COALESCE(j.next_run_at, j.created_at) ASC
         ) AS rn
     FROM jobs j
-    WHERE j.state IN ('pending', 'awaiting_retry')
-      AND j.next_check_at <= now()
-      AND (j.ends_at IS NULL OR j.next_check_at < j.ends_at)
-
-
+    WHERE (
+            (j.state IN ('pending', 'awaiting_retry') AND j.next_check_at <= now())
+         OR (j.state = 'success' AND j.next_run_at IS NOT NULL AND j.next_run_at <= now())
+          )
+      AND (j.ends_at IS NULL OR now() < j.ends_at)
 )
 SELECT ranked.id,ranked.queue,ranked.version FROM ranked
 LEFT JOIN queued_counts qc ON qc.queue = ranked.queue
@@ -47,10 +48,11 @@ ORDER BY ranked.queue, ranked.rn;
 
 -- name: CancelJob :one
 UPDATE jobs
-SET state = 'cancelled', next_check_at = NULL, version = version + 1
+SET state = 'cancelled', next_check_at = NULL, next_run_at = NULL, version = version + 1
 WHERE id = @id
   AND version = @version
-  AND state IN ('pending', 'queued', 'awaiting_retry')
+  AND (state IN ('pending', 'queued', 'awaiting_retry', 'paused')
+       OR (state = 'success' AND next_run_at IS NOT NULL))
 RETURNING *;
 
 -- name: RerunDeadJob :one
@@ -59,11 +61,61 @@ SET state = 'pending',
     retry_count = 0,
     delivery_count = 0,
     next_check_at = now(),
+    next_run_at = CASE WHEN job_type = 'cron' THEN now() ELSE NULL END,
     version = version + 1
 WHERE id = @id
   AND version = @version
   AND state = 'dead'
+  AND (ends_at IS NULL OR now() < ends_at)
 RETURNING *;
+
+-- name: PauseJob :one
+UPDATE jobs
+SET state = 'paused', next_check_at = NULL, version = version + 1
+WHERE id = @id
+  AND version = @version
+  AND job_type = 'cron'
+  AND state IN ('pending', 'queued', 'awaiting_retry', 'success')
+RETURNING *;
+
+-- name: ResumeJob :one
+UPDATE jobs
+SET state = 'pending',
+    next_check_at  = next_run_at,
+    retry_count    = 0,
+    delivery_count = 0,
+    version        = version + 1
+WHERE id = @id AND version = @version AND state = 'paused'
+RETURNING *;
+
+-- name: RescheduleJob :one
+UPDATE jobs
+SET job_type       = @job_type,
+    cron_expr      = @cron_expr,
+    starts_at      = @starts_at,
+    ends_at        = @ends_at,
+    next_run_at    = @next_run_at,
+    state          = CASE WHEN state = 'paused' THEN 'paused'::job_state
+                          ELSE 'pending'::job_state END,
+    next_check_at  = CASE WHEN state = 'paused' THEN NULL
+                          ELSE @next_check_at::timestamptz END,
+    retry_count    = 0,
+    delivery_count = 0,
+    version        = version + 1
+WHERE id = @id
+  AND version = @version
+  AND state IN ('pending', 'awaiting_retry', 'success', 'expired', 'paused')
+  AND (state <> 'paused' OR @job_type::job_type = 'cron')
+RETURNING *;
+
+-- name: FinalizeExpiredJobs :many
+UPDATE jobs
+SET state = 'expired', next_check_at = NULL, next_run_at = NULL, version = version + 1
+WHERE ends_at IS NOT NULL
+  AND now() >= ends_at
+  AND state NOT IN ('running', 'expired')
+  AND (next_check_at IS NOT NULL OR next_run_at IS NOT NULL)
+RETURNING id;
 
 -- name: ReclaimStaleJobs :many
 UPDATE jobs
@@ -85,7 +137,8 @@ SET state = 'queued',
     next_check_at = now() + @claim_deadline::interval,
     version = version + 1
 WHERE id = ANY(@ids::uuid[])
-  AND state IN ('pending', 'awaiting_retry')
+  AND (state IN ('pending', 'awaiting_retry')
+       OR (state = 'success' AND next_run_at IS NOT NULL))
 RETURNING id;
 
 -- A queued job past its claim deadline was never picked up by any worker, so it goes back to pending.
@@ -115,7 +168,8 @@ WITH claimed AS (
         version = version +1 ,
         next_check_at = now() + @stale_delta_threshold::interval
     WHERE jobs.id = @id AND state='queued'
-    RETURNING jobs.id,name,queue,payload,handler,retry_count,max_retries,delivery_count,version
+    RETURNING jobs.id,name,queue,payload,handler,retry_count,max_retries,delivery_count,version,
+              job_type,cron_expr,ends_at
 ),
 attempt AS (
     INSERT INTO job_attempts (job_id, worker_id)
@@ -124,6 +178,7 @@ attempt AS (
 )
 SELECT c.id, c.name, c.queue, c.payload, c.handler, c.retry_count, c.max_retries,
        c.delivery_count, c.version,
+       c.job_type, c.cron_expr, c.ends_at,
        a.id AS attempt_id
 FROM claimed c
 JOIN attempt a ON a.job_id = c.id;
@@ -139,10 +194,15 @@ RETURNING jobs.id;
 
 -- name: UpdateJobCompletion :execrows
 UPDATE jobs
-SET state='success',
-    version=version+1,
-    next_check_at=NULL
-WHERE id = @id AND version = @version AND state='running';
+SET state = CASE WHEN job_type = 'cron' AND @next_run_at::timestamptz IS NULL
+                 THEN 'expired'::job_state
+                 ELSE 'success'::job_state END,
+    next_check_at  = NULL,
+    next_run_at    = @next_run_at,
+    retry_count    = 0,
+    delivery_count = 0,
+    version        = version + 1
+WHERE id = @id AND version = @version AND state = 'running';
 
 -- name: RecordJobExecutionFailure :execrows
 UPDATE jobs
@@ -155,6 +215,9 @@ SET retry_count= CASE
     next_check_at  = CASE
       WHEN retry_count >= max_retries THEN NULL
       ELSE @next_check_at::timestamptz END,
+    next_run_at = CASE
+      WHEN retry_count >= max_retries THEN NULL
+      ELSE next_run_at END,
     version = version +1
 WHERE id = @id AND version = @version AND state = 'running';
 

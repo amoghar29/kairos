@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -47,11 +48,7 @@ func (app *Application) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	created, isNew, err := app.JobRepository.Create(r.Context(), req.ToParams())
-	switch {
-	case errors.Is(err, job.ErrIdempotencyCollision):
-		app.idempotencyCollision(w, r)
-		return
-	case err != nil:
+	if err != nil {
 		app.serverError(w, r, err)
 		return
 	}
@@ -186,6 +183,96 @@ func (app *Application) RerunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	app.writeJSON(w, r, http.StatusOK, NewJobResponse(rerun))
+}
+
+func (app *Application) PauseJob(w http.ResponseWriter, r *http.Request) {
+	id, err := jobIDFromURL(r)
+	if err != nil {
+		app.badRequest(w, r, "id must be a valid UUID")
+		return
+	}
+
+	var req PauseRequest
+	if err := decodeBody(w, r, &req); err != nil {
+		app.badRequest(w, r, err.Error())
+		return
+	}
+	if fields := req.Validate(); fields != nil {
+		app.failedValidation(w, r, fields)
+		return
+	}
+
+	var updated db.Job
+	var conflict string
+	if *req.Paused {
+		updated, err = app.JobRepository.Pause(r.Context(), id, req.Version)
+		conflict = "job was modified by another request, is not a cron job, or is currently running"
+	} else {
+		updated, err = app.JobRepository.Resume(r.Context(), id, req.Version)
+		conflict = "job was modified by another request or is not paused"
+	}
+
+	switch {
+	case errors.Is(err, job.ErrNotFound):
+		app.notFound(w, r)
+		return
+	case errors.Is(err, job.ErrConflict):
+		app.conflict(w, r, conflict)
+		return
+	case err != nil:
+		app.serverError(w, r, err)
+		return
+	}
+
+	app.writeJSON(w, r, http.StatusOK, NewJobResponse(updated))
+}
+
+func (app *Application) RescheduleJob(w http.ResponseWriter, r *http.Request) {
+	id, err := jobIDFromURL(r)
+	if err != nil {
+		app.badRequest(w, r, "id must be a valid UUID")
+		return
+	}
+
+	var req RescheduleRequest
+	if err := decodeBody(w, r, &req); err != nil {
+		app.badRequest(w, r, err.Error())
+		return
+	}
+	if fields := req.Validate(); fields != nil {
+		app.failedValidation(w, r, fields)
+		return
+	}
+
+	existing, err := app.JobRepository.GetByID(r.Context(), id)
+	switch {
+	case errors.Is(err, job.ErrNotFound):
+		app.notFound(w, r)
+		return
+	case err != nil:
+		app.serverError(w, r, err)
+		return
+	}
+
+	if existing.State == db.JobStatePaused && req.Cron == "" {
+		app.conflict(w, r, "resume the job before rescheduling it to a one-off run")
+		return
+	}
+
+	rescheduled, err := app.JobRepository.Reschedule(r.Context(), req.ToParams(id))
+	switch {
+	case errors.Is(err, job.ErrNotFound):
+		app.notFound(w, r)
+		return
+	case errors.Is(err, job.ErrConflict):
+		app.conflict(w, r, "job was modified by another request or is running, dead or cancelled")
+		return
+	case err != nil:
+		app.serverError(w, r, err)
+		return
+	}
+
+	app.writeJSON(w, r, http.StatusOK, NewJobResponse(rescheduled))
 }
 
 func (app *Application) ListJobAttempts(w http.ResponseWriter, r *http.Request) {

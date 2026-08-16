@@ -31,6 +31,8 @@ func (app *Application) Routes() http.Handler {
 				r.Delete("/", app.DeleteJob)
 				r.Post("/cancel", app.CancelJob)
 				r.Post("/rerun", app.RerunJob)
+				r.Post("/pause", app.PauseJob)
+				r.Post("/reschedule", app.RescheduleJob)
 				r.Get("/attempts", app.ListJobAttempts)
 			})
 		})
