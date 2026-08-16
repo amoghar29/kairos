@@ -91,6 +91,7 @@ const (
 	JobStateSuccess       JobState = "success"
 	JobStateDead          JobState = "dead"
 	JobStateCancelled     JobState = "cancelled"
+	JobStateExpired       JobState = "expired"
 )
 
 func (e *JobState) Scan(src interface{}) error {
@@ -136,7 +137,8 @@ func (e JobState) Valid() bool {
 		JobStateAwaitingRetry,
 		JobStateSuccess,
 		JobStateDead,
-		JobStateCancelled:
+		JobStateCancelled,
+		JobStateExpired:
 		return true
 	}
 	return false
@@ -151,6 +153,65 @@ func AllJobStateValues() []JobState {
 		JobStateSuccess,
 		JobStateDead,
 		JobStateCancelled,
+		JobStateExpired,
+	}
+}
+
+type JobType string
+
+const (
+	JobTypeAdhoc JobType = "adhoc"
+	JobTypeCron  JobType = "cron"
+)
+
+func (e *JobType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = JobType(s)
+	case string:
+		*e = JobType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for JobType: %T", src)
+	}
+	return nil
+}
+
+type NullJobType struct {
+	JobType JobType `json:"job_type"`
+	Valid   bool    `json:"valid"` // Valid is true if JobType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullJobType) Scan(value interface{}) error {
+	if value == nil {
+		ns.JobType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.JobType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullJobType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.JobType), nil
+}
+
+func (e JobType) Valid() bool {
+	switch e {
+	case JobTypeAdhoc,
+		JobTypeCron:
+		return true
+	}
+	return false
+}
+
+func AllJobTypeValues() []JobType {
+	return []JobType{
+		JobTypeAdhoc,
+		JobTypeCron,
 	}
 }
 
@@ -235,6 +296,11 @@ type Job struct {
 	Version        int32              `json:"version"`
 	NextCheckAt    pgtype.Timestamptz `json:"next_check_at"`
 	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	JobType        JobType            `json:"job_type"`
+	CronExpr       pgtype.Text        `json:"cron_expr"`
+	StartsAt       pgtype.Timestamptz `json:"starts_at"`
+	EndsAt         pgtype.Timestamptz `json:"ends_at"`
+	LastRunAt      pgtype.Timestamptz `json:"last_run_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }

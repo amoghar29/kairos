@@ -80,7 +80,7 @@ func (jc *JobConsumer) runOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
-	if err := jc.expireUnclaimedJobs(ctx); err != nil {
+	if err := jc.updateLostJobs(ctx); err != nil {
 		return 0, err
 	}
 
@@ -152,16 +152,16 @@ func (jc *JobConsumer) reclaimStale(ctx context.Context) error {
 
 const lostDispatchResult = "dispatched to redis but no worker claimed it before the claim deadline passed"
 
-func (jc *JobConsumer) expireUnclaimedJobs(ctx context.Context) error {
-	expired, err := jc.jobRepository.ExpireUnclaimedJobs(ctx, lostDispatchResult)
+func (jc *JobConsumer) updateLostJobs(ctx context.Context) error {
+	lost, err := jc.jobRepository.UpdateLostJob(ctx, lostDispatchResult)
 	if err != nil {
-		return fmt.Errorf("expire unclaimed jobs: %w", err)
+		return fmt.Errorf("update lost jobs: %w", err)
 	}
-	if len(expired) == 0 {
+	if len(lost) == 0 {
 		return nil
 	}
 
-	jc.logger.Info("requeued jobs past their claim deadline", slog.Int("count", len(expired)))
+	jc.logger.Info("requeued jobs past their claim deadline", slog.Int("count", len(lost)))
 
 	return nil
 }

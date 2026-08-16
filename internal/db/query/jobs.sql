@@ -1,7 +1,9 @@
 -- name: CreateJob :one
 INSERT INTO jobs
-    (name, queue, payload, handler, priority, max_retries, next_check_at, idempotency_key)
-VALUES (@name, @queue, @payload, @handler, @priority, @max_retries, now(), @idempotency_key)
+    (name, queue, payload, handler, priority, max_retries, next_check_at, idempotency_key,
+     job_type, cron_expr, starts_at, ends_at)
+VALUES (@name, @queue, @payload, @handler, @priority, @max_retries, @next_check_at,
+        @idempotency_key, @job_type, @cron_expr, @starts_at, @ends_at)
 RETURNING *;
 
 -- name: GetJobById :one
@@ -33,6 +35,9 @@ ranked AS (
     FROM jobs j
     WHERE j.state IN ('pending', 'awaiting_retry')
       AND j.next_check_at <= now()
+      AND (j.ends_at IS NULL OR j.next_check_at < j.ends_at)
+
+
 )
 SELECT ranked.id,ranked.queue,ranked.version FROM ranked
 LEFT JOIN queued_counts qc ON qc.queue = ranked.queue
@@ -84,8 +89,8 @@ WHERE id = ANY(@ids::uuid[])
 RETURNING id;
 
 -- A queued job past its claim deadline was never picked up by any worker, so it goes back to pending.
--- name: ExpireUnclaimedJobs :many
-WITH expired AS (
+-- name: UpdateLostJob :many
+WITH lost AS (
     UPDATE jobs
     SET state = 'pending',
         delivery_count = jobs.delivery_count + 1,
@@ -97,10 +102,10 @@ WITH expired AS (
 ),
 attempt AS (
     INSERT INTO job_attempts (job_id, worker_id, outcome, result, finished_at)
-    SELECT expired.id, NULL, 'lost', @result::text, now() FROM expired
+    SELECT lost.id, NULL, 'lost', @result::text, now() FROM lost
     RETURNING job_attempts.job_id
 )
-SELECT expired.id FROM expired JOIN attempt ON attempt.job_id = expired.id;
+SELECT lost.id FROM lost JOIN attempt ON attempt.job_id = lost.id;
 
 -- name: ClaimJobForExecution :one
 WITH claimed AS (

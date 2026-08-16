@@ -17,7 +17,7 @@ SET state = 'cancelled', next_check_at = NULL, version = version + 1
 WHERE id = $1
   AND version = $2
   AND state IN ('pending', 'queued', 'awaiting_retry')
-RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
+RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at
 `
 
 type CancelJobParams struct {
@@ -42,6 +42,11 @@ func (q *Queries) CancelJob(ctx context.Context, arg CancelJobParams) (Job, erro
 		&i.Version,
 		&i.NextCheckAt,
 		&i.IdempotencyKey,
+		&i.JobType,
+		&i.CronExpr,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.LastRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -109,19 +114,26 @@ func (q *Queries) ClaimJobForExecution(ctx context.Context, arg ClaimJobForExecu
 
 const createJob = `-- name: CreateJob :one
 INSERT INTO jobs
-    (name, queue, payload, handler, priority, max_retries, next_check_at, idempotency_key)
-VALUES ($1, $2, $3, $4, $5, $6, now(), $7)
-RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
+    (name, queue, payload, handler, priority, max_retries, next_check_at, idempotency_key,
+     job_type, cron_expr, starts_at, ends_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7,
+        $8, $9, $10, $11, $12)
+RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at
 `
 
 type CreateJobParams struct {
-	Name           string      `json:"name"`
-	Queue          string      `json:"queue"`
-	Payload        []byte      `json:"payload"`
-	Handler        string      `json:"handler"`
-	Priority       int32       `json:"priority"`
-	MaxRetries     int32       `json:"max_retries"`
-	IdempotencyKey pgtype.Text `json:"idempotency_key"`
+	Name           string             `json:"name"`
+	Queue          string             `json:"queue"`
+	Payload        []byte             `json:"payload"`
+	Handler        string             `json:"handler"`
+	Priority       int32              `json:"priority"`
+	MaxRetries     int32              `json:"max_retries"`
+	NextCheckAt    pgtype.Timestamptz `json:"next_check_at"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	JobType        JobType            `json:"job_type"`
+	CronExpr       pgtype.Text        `json:"cron_expr"`
+	StartsAt       pgtype.Timestamptz `json:"starts_at"`
+	EndsAt         pgtype.Timestamptz `json:"ends_at"`
 }
 
 func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, error) {
@@ -132,7 +144,12 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 		arg.Handler,
 		arg.Priority,
 		arg.MaxRetries,
+		arg.NextCheckAt,
 		arg.IdempotencyKey,
+		arg.JobType,
+		arg.CronExpr,
+		arg.StartsAt,
+		arg.EndsAt,
 	)
 	var i Job
 	err := row.Scan(
@@ -149,6 +166,11 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 		&i.Version,
 		&i.NextCheckAt,
 		&i.IdempotencyKey,
+		&i.JobType,
+		&i.CronExpr,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.LastRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -174,7 +196,7 @@ func (q *Queries) CreateJobAttempt(ctx context.Context, arg CreateJobAttemptPara
 }
 
 const deleteJobById = `-- name: DeleteJobById :one
-DELETE FROM jobs WHERE id = $1 RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
+DELETE FROM jobs WHERE id = $1 RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at
 `
 
 func (q *Queries) DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error) {
@@ -194,50 +216,15 @@ func (q *Queries) DeleteJobById(ctx context.Context, id pgtype.UUID) (Job, error
 		&i.Version,
 		&i.NextCheckAt,
 		&i.IdempotencyKey,
+		&i.JobType,
+		&i.CronExpr,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.LastRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const expireUnclaimedJobs = `-- name: ExpireUnclaimedJobs :many
-WITH expired AS (
-    UPDATE jobs
-    SET state = 'pending',
-        delivery_count = jobs.delivery_count + 1,
-        next_check_at = now(),
-        version = jobs.version + 1
-    WHERE jobs.state = 'queued'
-      AND jobs.next_check_at <= now()
-    RETURNING jobs.id
-),
-attempt AS (
-    INSERT INTO job_attempts (job_id, worker_id, outcome, result, finished_at)
-    SELECT expired.id, NULL, 'lost', $1::text, now() FROM expired
-    RETURNING job_attempts.job_id
-)
-SELECT expired.id FROM expired JOIN attempt ON attempt.job_id = expired.id
-`
-
-// A queued job past its claim deadline was never picked up by any worker, so it goes back to pending.
-func (q *Queries) ExpireUnclaimedJobs(ctx context.Context, result string) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, expireUnclaimedJobs, result)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []pgtype.UUID
-	for rows.Next() {
-		var id pgtype.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const getAttemptLogs = `-- name: GetAttemptLogs :many
@@ -305,7 +292,7 @@ WITH queued_counts AS (
     GROUP BY queue
 ),
 ranked AS (
-    SELECT j.id, j.name, j.queue, j.state, j.payload, j.handler, j.priority, j.retry_count, j.max_retries, j.delivery_count, j.version, j.next_check_at, j.idempotency_key, j.created_at, j.updated_at,
+    SELECT j.id, j.name, j.queue, j.state, j.payload, j.handler, j.priority, j.retry_count, j.max_retries, j.delivery_count, j.version, j.next_check_at, j.idempotency_key, j.job_type, j.cron_expr, j.starts_at, j.ends_at, j.last_run_at, j.created_at, j.updated_at,
         ROW_NUMBER() OVER (
             PARTITION BY j.queue
             ORDER BY (j.priority + $2::float * extract(epoch from j.created_at)) ASC,
@@ -314,6 +301,9 @@ ranked AS (
     FROM jobs j
     WHERE j.state IN ('pending', 'awaiting_retry')
       AND j.next_check_at <= now()
+      AND (j.ends_at IS NULL OR j.next_check_at < j.ends_at)
+
+
 )
 SELECT ranked.id,ranked.queue,ranked.version FROM ranked
 LEFT JOIN queued_counts qc ON qc.queue = ranked.queue
@@ -394,7 +384,7 @@ func (q *Queries) GetJobAttemptsByJobId(ctx context.Context, arg GetJobAttemptsB
 }
 
 const getJobById = `-- name: GetJobById :one
-SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at FROM jobs WHERE id = $1
+SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at FROM jobs WHERE id = $1
 `
 
 func (q *Queries) GetJobById(ctx context.Context, id pgtype.UUID) (Job, error) {
@@ -414,6 +404,11 @@ func (q *Queries) GetJobById(ctx context.Context, id pgtype.UUID) (Job, error) {
 		&i.Version,
 		&i.NextCheckAt,
 		&i.IdempotencyKey,
+		&i.JobType,
+		&i.CronExpr,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.LastRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -421,7 +416,7 @@ func (q *Queries) GetJobById(ctx context.Context, id pgtype.UUID) (Job, error) {
 }
 
 const getJobByIdempotencyKey = `-- name: GetJobByIdempotencyKey :one
-SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at FROM jobs WHERE idempotency_key = $1
+SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at FROM jobs WHERE idempotency_key = $1
 `
 
 func (q *Queries) GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgtype.Text) (Job, error) {
@@ -441,6 +436,11 @@ func (q *Queries) GetJobByIdempotencyKey(ctx context.Context, idempotencyKey pgt
 		&i.Version,
 		&i.NextCheckAt,
 		&i.IdempotencyKey,
+		&i.JobType,
+		&i.CronExpr,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.LastRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -481,7 +481,7 @@ func (q *Queries) InsertJobLogs(ctx context.Context, arg InsertJobLogsParams) (i
 }
 
 const listJobs = `-- name: ListJobs :many
-SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at FROM jobs
+SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at FROM jobs
 ORDER BY created_at DESC, id DESC
 LIMIT $1 OFFSET $2
 `
@@ -515,6 +515,11 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]Job, erro
 			&i.Version,
 			&i.NextCheckAt,
 			&i.IdempotencyKey,
+			&i.JobType,
+			&i.CronExpr,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.LastRunAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -575,7 +580,7 @@ SET state = CASE
     END,
     version = version + 1
 WHERE state = 'running' AND next_check_at <= now()
-RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
+RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at
 `
 
 func (q *Queries) ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) ([]Job, error) {
@@ -601,6 +606,11 @@ func (q *Queries) ReclaimStaleJobs(ctx context.Context, maxDeliveryCount int32) 
 			&i.Version,
 			&i.NextCheckAt,
 			&i.IdempotencyKey,
+			&i.JobType,
+			&i.CronExpr,
+			&i.StartsAt,
+			&i.EndsAt,
+			&i.LastRunAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -689,7 +699,7 @@ SET state = 'pending',
 WHERE id = $1
   AND version = $2
   AND state = 'dead'
-RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, created_at, updated_at
+RETURNING id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, last_run_at, created_at, updated_at
 `
 
 type RerunDeadJobParams struct {
@@ -714,6 +724,11 @@ func (q *Queries) RerunDeadJob(ctx context.Context, arg RerunDeadJobParams) (Job
 		&i.Version,
 		&i.NextCheckAt,
 		&i.IdempotencyKey,
+		&i.JobType,
+		&i.CronExpr,
+		&i.StartsAt,
+		&i.EndsAt,
+		&i.LastRunAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -772,4 +787,44 @@ func (q *Queries) UpdateJobCompletion(ctx context.Context, arg UpdateJobCompleti
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateLostJob = `-- name: UpdateLostJob :many
+WITH lost AS (
+    UPDATE jobs
+    SET state = 'pending',
+        delivery_count = jobs.delivery_count + 1,
+        next_check_at = now(),
+        version = jobs.version + 1
+    WHERE jobs.state = 'queued'
+      AND jobs.next_check_at <= now()
+    RETURNING jobs.id
+),
+attempt AS (
+    INSERT INTO job_attempts (job_id, worker_id, outcome, result, finished_at)
+    SELECT lost.id, NULL, 'lost', $1::text, now() FROM lost
+    RETURNING job_attempts.job_id
+)
+SELECT lost.id FROM lost JOIN attempt ON attempt.job_id = lost.id
+`
+
+// A queued job past its claim deadline was never picked up by any worker, so it goes back to pending.
+func (q *Queries) UpdateLostJob(ctx context.Context, result string) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, updateLostJob, result)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

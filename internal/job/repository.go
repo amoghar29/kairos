@@ -166,12 +166,12 @@ func (r *JobRepository) MarksJobAsQueued(ctx context.Context, ids []pgtype.UUID,
 	return queued, nil
 }
 
-func (r *JobRepository) ExpireUnclaimedJobs(ctx context.Context, result string) ([]pgtype.UUID, error) {
-	expired, err := r.q.ExpireUnclaimedJobs(ctx, result)
+func (r *JobRepository) UpdateLostJob(ctx context.Context, result string) ([]pgtype.UUID, error) {
+	lost, err := r.q.UpdateLostJob(ctx, result)
 	if err != nil {
-		return nil, fmt.Errorf("expire unclaimed jobs: %w", err)
+		return nil, fmt.Errorf("update lost jobs: %w", err)
 	}
-	return expired, nil
+	return lost, nil
 }
 
 func (r *JobRepository) ClaimForExecution(ctx context.Context, id pgtype.UUID, workerID string, staleDelta pgtype.Interval) (db.ClaimJobForExecutionRow, error) {
