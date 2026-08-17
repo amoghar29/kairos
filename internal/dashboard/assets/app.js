@@ -89,8 +89,9 @@ class Component extends DCLogic {
       outcome: 'in_progress', started_at: j.started_at, finished_at: null
     })).sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
   }
-  // jobs.handler is a plain text column — no registry table, so the handler list is
-  // an aggregation over job rows plus their attempts.
+  // Two sources: counts are aggregated over job rows and their attempts, while `registered`
+  // and `workers` come from the live worker registry in Redis. A handler can have one
+  // without the other — history with no live worker, or a fresh deploy with no jobs yet.
   state = {
     url: typeof location !== 'undefined' ? (location.pathname + location.search) : '/',
     tick: 0,
@@ -108,8 +109,10 @@ class Component extends DCLogic {
     schedOpen: false, schedBusy: false,
     schedForm: { cron: '*/5 * * * *', preset: '*/5 * * * *', startsAt: '', endsAt: '' },
     payloadOpen: true, copied: false, expanded: {}, attemptsFilter: 'last5',
-    search: '', sortKey: null, sortDir: 'asc', rowExpanded: {}, rowAttempts: {},
-    detailTab: 'payload',
+    search: '', searchPending: false, sortKey: null, sortDir: 'asc', rowExpanded: {}, rowAttempts: {},
+    detailTab: 'payload', jobTab: 'overview',
+    logAttemptId: null, logs: {},
+    attempts: null, attemptsErr: null, attemptsCode: null, attemptsDone: false,
     actionErr: null, actionCode: null, actionOk: null,
     lastUpdated: null, connLost: false, hidden: false,
     form: { mode: 'once', cron: '*/5 * * * *', startsAt: '', endsAt: '', name: 'send_email', handler: 'email.send', queue: 'default', priority: 5, payload: '{\n  "to": "a@b.com",\n  "template": "welcome"\n}' },
@@ -134,13 +137,15 @@ class Component extends DCLogic {
   getHandlers() { return this.api('/handlers'); }
   getHandler(name) { return this.api('/handlers/' + encodeURIComponent(name)); }
   getJobs(qs) { return this.api('/jobs?' + qs); }
+  getAttempts(qs) { return this.api('/jobs/attempts?' + qs); }
+  getAttemptLogs(jobId, attemptId) { return this.api('/jobs/' + jobId + '/attempts/' + attemptId + '/logs?limit=100'); }
   // The server keeps the job and its attempts on separate endpoints, so the detail view
   // composes them here. attempt_no is positional (attempts come back started_at ascending)
   // and the server calls the failure text `result`.
   async getJob(id) {
     const [job, at] = await Promise.all([
       this.api('/jobs/' + id),
-      this.api('/jobs/' + id + '/attempts')
+      this.api('/jobs/' + id + '/attempts?limit=100')
     ]);
     return {
       job: job,
@@ -182,8 +187,27 @@ class Component extends DCLogic {
       handlerId: hm ? decodeURIComponent(hm[1]) : null,
       states: params.getAll('state'), queue: params.get('queue') || '',
       handler: params.get('handler') || '', q: params.get('q') || '', jobType: params.get('job_type') || '',
+      outcome: params.get('outcome') || '',
       offset: parseInt(params.get('offset') || '0', 10)
     };
+  }
+  attemptsQuery(r) {
+    const qp = new URLSearchParams();
+    if (r.outcome) qp.set('outcome', r.outcome);
+    if (r.queue) qp.set('queue', r.queue);
+    if (r.handler) qp.set('handler', r.handler);
+    qp.set('limit', String(this.limit()));
+    qp.set('offset', String(r.offset));
+    return qp.toString();
+  }
+  attemptsUrlFor(r) {
+    const qp = new URLSearchParams();
+    if (r.outcome) qp.set('outcome', r.outcome);
+    if (r.queue) qp.set('queue', r.queue);
+    if (r.handler) qp.set('handler', r.handler);
+    if (r.offset) qp.set('offset', String(r.offset));
+    const q = qp.toString();
+    return '/attempts' + (q ? '?' + q : '');
   }
   limit() { return this.props.rowsPerPage || 25; }
   jobsQuery(r) {
@@ -236,6 +260,10 @@ class Component extends DCLogic {
       // blank the table, so it degrades to "all queues" / "all handlers" instead.
       try { const d = await this.getQueues(); this.ok({ queues: d }); } catch (e) { /* pickers degrade */ }
       try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) { /* pickers degrade */ }
+    } else if (r.path === '/attempts') {
+      try { const d = await this.getAttempts(this.attemptsQuery(r)); this.ok({ attempts: d.attempts, pagination: d.pagination, attemptsErr: null, attemptsDone: true }); } catch (e) { this.fail('attempts', e); }
+      try { const d = await this.getQueues(); this.ok({ queues: d }); } catch (e) { /* pickers degrade */ }
+      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) { /* pickers degrade */ }
     } else if (r.path === '/submit') {
       try {
         const d = await this.getQueues();
@@ -273,7 +301,12 @@ class Component extends DCLogic {
         detail: null, detailErr: null, detailDone: false, actionErr: null, actionOk: null,
         hdetail: null, hdetailErr: null, hdetailDone: false, handlersDone: false, schedDone: false, schedOpen: false, schedBusy: false,
         queuesDone: false, queues: this.state.queues, expanded: {}, attemptsFilter: 'last5',
-        search: new URLSearchParams(location.search).get('q') || '',
+        // A debounced search navigates while the box may still have focus; re-seeding from
+        // the URL then would drop whatever was typed during the in-flight fetch.
+        search: this.searchTimer ? this.state.search : (new URLSearchParams(location.search).get('q') || ''),
+        searchPending: !!this.searchTimer,
+        attempts: null, attemptsErr: null, attemptsCode: null, attemptsDone: false,
+        jobTab: 'overview', logAttemptId: null, logs: {},
         workerExpanded: {},
     schedules: null, schedErr: null, schedCode: null, schedDone: false,
     schedOpen: false, schedBusy: false,
@@ -310,6 +343,7 @@ class Component extends DCLogic {
         if (e.key === 'h') return this.go('/handlers');
         if (e.key === 'w') return this.go('/workers');
         if (e.key === 's') return this.go('/submit');
+        if (e.key === 'a') return this.go('/attempts');
         return;
       }
       if (e.key === 'r') this.load(true);
@@ -326,7 +360,7 @@ class Component extends DCLogic {
     this.ticker = setInterval(() => this.setState({ tick: this.state.tick + 1 }), 1000);
   }
   componentWillUnmount() {
-    clearInterval(this.poll); clearInterval(this.ticker);
+    clearInterval(this.poll); clearInterval(this.ticker); clearTimeout(this.searchTimer);
     window.removeEventListener('popstate', this.onNav);
     document.removeEventListener('click', this.onLinkClick);
     window.removeEventListener('keydown', this.onKey);
@@ -344,12 +378,50 @@ class Component extends DCLogic {
   rel(iso) { if (!iso) return '—'; return this.dur((Date.now() - Date.parse(iso)) / 1000) + ' ago'; }
   relShort(iso) { if (!iso) return '—'; return this.dur((Date.now() - Date.parse(iso)) / 1000); }
   abs(iso) { return iso || '—'; }
+  ts(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()) + ' ' +
+           p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + 'Z';
+  }
+  tsTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    const p = (n) => String(n).padStart(2, '0');
+    return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds());
+  }
+  // Table columns stack the date over the clock: three full timestamps side by side push
+  // the row past the viewport and reintroduce the horizontal scrollbar.
+  tsDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate());
+  }
+  tsClock(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return this.tsTime(iso) + 'Z';
+  }
+  // job_attempts.worker_id stores the worker identity "<name>:<run-uuid>", while GET /workers
+  // reports the bare run uuid — so the name is parsed out of the identity, never looked up.
+  // A lost dispatch records an attempt with no worker at all.
+  workerLabel(id) {
+    if (!id) return { name: 'not claimed', title: 'no worker claimed this dispatch', missing: true };
+    const i = String(id).lastIndexOf(':');
+    return { name: i > 0 ? String(id).slice(0, i) : String(id), title: String(id), missing: false };
+  }
   msDur(a, b) { if (!a || !b) return '—'; const ms = Date.parse(b) - Date.parse(a); return ms < 10000 ? (ms / 1000).toFixed(2) + 's' : this.dur(ms / 1000); }
 
   badge(state) {
     const map = {
       pending: { background: 'var(--k-surface2)', color: 'var(--k-text2)', border: '1px solid var(--k-line)' },
-      queued: { background: 'var(--k-line)', color: 'var(--k-ink900)', border: '1px solid var(--k-faint)' },
+      queued: { background: 'var(--k-info-bg)', color: 'var(--k-info-fg)', border: '1px solid var(--k-info-border)' },
       running: { background: 'var(--color-accent)', color: 'var(--color-bg)', border: '1px solid var(--color-accent-700)' },
       awaiting_retry: { background: 'var(--k-warn-bg)', color: 'var(--k-warn-fg)', border: '1px solid var(--k-warn-border)' },
       success: { background: 'var(--k-ok-bg)', color: 'var(--k-ok-fg)', border: '1px solid var(--k-ok-border)' },
@@ -359,7 +431,10 @@ class Component extends DCLogic {
       paused: { background: 'var(--k-warn-bg)', color: 'var(--k-warn-fg)', border: '1px solid var(--k-warn-border)' },
       in_progress: { background: 'var(--color-accent)', color: 'var(--color-bg)', border: '1px solid var(--color-accent-700)' },
       failed: { background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)' },
-      superseded: { background: 'transparent', color: 'var(--k-faint2)', border: '1px dashed var(--k-faint)' }
+      // Neither a failure nor a success: the dispatch was never claimed, or the attempt was
+      // replaced by a newer one. Distinct hues so they don't read as red or green.
+      lost: { background: 'var(--k-lost-bg)', color: 'var(--k-lost-fg)', border: '1px solid var(--k-lost-border)' },
+      superseded: { background: 'var(--k-sup-bg)', color: 'var(--k-sup-fg)', border: '1px solid var(--k-sup-border)' }
     };
     return Object.assign({
       display: 'inline-block', fontFamily: 'var(--font-heading)', fontWeight: 600,
@@ -372,28 +447,50 @@ class Component extends DCLogic {
     if (typeof document !== 'undefined') document.documentElement.setAttribute('data-theme', t);
     try { localStorage.setItem('kairos-theme', t); } catch (e) {}
   }
-  seg(n, counts, color) {
-    const total = counts.pending + counts.queued + counts.running + counts.awaiting_retry;
-    return { width: (total ? (n / total) * 100 : 0) + '%', background: color };
+  typeTag(isCron) {
+    return {
+      display: 'inline-block', font: '600 10.5px var(--font-heading)', letterSpacing: '.06em',
+      textTransform: 'uppercase', padding: '1px 7px', whiteSpace: 'nowrap',
+      background: isCron ? 'var(--k-neutral-bg)' : 'transparent',
+      color: isCron ? 'var(--k-ink900)' : 'var(--k-text2)',
+      border: '1px solid ' + (isCron ? 'var(--k-line)' : 'var(--color-divider)')
+    };
   }
-  ageStyle(sec) {
-    const base = { display: 'inline-block', fontVariantNumeric: 'tabular-nums', fontSize: '13px', padding: '1px 8px', fontWeight: 500 };
-    if (sec > 300) return Object.assign(base, { background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)', fontWeight: 700 });
-    if (sec > 60) return Object.assign(base, { background: 'var(--k-warn-bg)', color: 'var(--k-warn-fg)', border: '1px solid var(--k-warn-border)' });
-    return Object.assign(base, { color: 'var(--k-text2)', border: '1px solid transparent' });
+  // The bar is a severity meter, not a composition breakdown: width is this queue's share of
+  // the deepest queue, hue ramps green→red so the worst backlog is findable at a glance.
+  depthBar(depth, scale) {
+    if (!depth) return { width: '0%', background: 'transparent' };
+    const pct = Math.max(2, (depth / Math.max(1, scale)) * 100);
+    const hue = 130 - 130 * Math.min(1, depth / Math.max(50, scale));
+    return { width: Math.min(100, pct) + '%', background: 'hsl(' + Math.round(hue) + ',55%,42%)' };
   }
 
   // ── actions ───────────────────────────────────────────────────────────
   stepPage(d) {
     const r = this.route();
-    if (r.path !== '/jobs') return;
+    if (r.path !== '/jobs' && r.path !== '/attempts') return;
     if (d > 0 && !(this.state.pagination && this.state.pagination.has_more)) return;
     const off = Math.max(0, r.offset + d * this.limit());
-    r.offset = off; this.go(this.urlFor(r));
+    r.offset = off;
+    this.go(r.path === '/attempts' ? this.attemptsUrlFor(r) : this.urlFor(r));
   }
   toggleSort(key) {
     if (this.state.sortKey === key) this.setState({ sortDir: this.state.sortDir === 'asc' ? 'desc' : 'asc' });
     else this.setState({ sortKey: key, sortDir: 'asc' });
+  }
+  async loadLogs(jobId, attemptId) {
+    if (!attemptId || this.state.logs[attemptId]) return;
+    this.setState({ logs: Object.assign({}, this.state.logs, { [attemptId]: 'loading' }) });
+    try {
+      const d = await this.getAttemptLogs(jobId, attemptId);
+      this.setState({ logs: Object.assign({}, this.state.logs, { [attemptId]: d.logs || [] }) });
+    } catch (e) {
+      this.setState({ logs: Object.assign({}, this.state.logs, { [attemptId]: 'error' }) });
+    }
+  }
+  selectLogAttempt(jobId, attemptId) {
+    this.setState({ logAttemptId: attemptId });
+    this.loadLogs(jobId, attemptId);
   }
   async toggleRowExpand(job) {
     const open = !this.state.rowExpanded[job.id];
@@ -436,8 +533,8 @@ class Component extends DCLogic {
     this.setState({
       schedOpen: true, actionErr: null, actionOk: null,
       schedForm: {
-        cron: j.cron_expr || '*/5 * * * *',
-        preset: j.cron_expr || '*/5 * * * *',
+        cron: j.cron || '*/5 * * * *',
+        preset: j.cron || '*/5 * * * *',
         startsAt: toLocal(j.starts_at), endsAt: toLocal(j.ends_at)
       }
     });
@@ -521,9 +618,11 @@ class Component extends DCLogic {
       navDocs: r.path === '/docs' ? 'page' : undefined,
       isQueues: r.path === '/queues',
       navQueues: r.path === '/queues' ? 'page' : undefined,
+      isAttempts: r.path === '/attempts',
+      navAttempts: r.path === '/attempts' ? 'page' : undefined,
       // Anything the router does not claim. Derived from the known paths rather than a
       // second list, so adding a page cannot leave a route falling through to 404.
-      isNotFound: ['/', '/jobs', '/queues', '/schedules', '/handlers', '/workers', '/submit', '/docs']
+      isNotFound: ['/', '/jobs', '/queues', '/schedules', '/handlers', '/workers', '/submit', '/docs', '/attempts']
         .indexOf(r.path) === -1 && !r.detailId && !r.workerId && !r.handlerId,
       notFoundPath: r.path,
       connLost: s.connLost,
@@ -535,7 +634,7 @@ class Component extends DCLogic {
         width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block',
         background: s.connLost ? 'var(--k-red)' : s.hidden ? 'var(--k-faint)' : 'var(--color-accent)'
       },
-      onRetry: () => { this.setState({ queuesErr: null, jobsErr: null, workersErr: null, detailErr: null, handlersErr: null, hdetailErr: null, queuesDone: false, jobsDone: false, workersDone: false, detailDone: false, handlersDone: false, hdetailDone: false }, () => this.load(true)); }
+      onRetry: () => { this.setState({ queuesErr: null, jobsErr: null, workersErr: null, detailErr: null, handlersErr: null, hdetailErr: null, attemptsErr: null, queuesDone: false, jobsDone: false, workersDone: false, detailDone: false, handlersDone: false, hdetailDone: false, attemptsDone: false }, () => this.load(true)); }
     };
     // handlers
     const fmtMs = (ms) => ms === null || ms === undefined ? '—' : (ms < 10000 ? (ms / 1000).toFixed(2) + 's' : this.dur(ms / 1000));
@@ -543,9 +642,10 @@ class Component extends DCLogic {
     const rateStyle = (x) => {
       const base = { display: 'inline-block', fontVariantNumeric: 'tabular-nums', fontSize: '13px', padding: '1px 7px' };
       if (x === null || x === undefined) return Object.assign(base, { color: 'var(--k-faint)' });
-      if (x < 0.6) return Object.assign(base, { background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)', fontWeight: 700 });
+      if (x < 0.5) return Object.assign(base, { background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)', fontWeight: 700 });
+      if (x < 0.75) return Object.assign(base, { background: 'var(--k-lost-bg)', color: 'var(--k-lost-fg)', border: '1px solid var(--k-lost-border)', fontWeight: 600 });
       if (x < 0.9) return Object.assign(base, { background: 'var(--k-warn-bg)', color: 'var(--k-warn-fg)', border: '1px solid var(--k-warn-border)' });
-      return Object.assign(base, { color: 'var(--k-ok-fg)', border: '1px solid transparent' });
+      return Object.assign(base, { background: 'var(--k-ok-bg)', color: 'var(--k-ok-fg)', border: '1px solid var(--k-ok-border)' });
     };
     const hs = s.handlers;
     v.handlersLoading = !s.handlersDone && !hs && !s.handlersErr;
@@ -555,6 +655,10 @@ class Component extends DCLogic {
     v.handlerCount = hs ? hs.length : '–';
     v.handlersFailing = hs ? hs.filter(h => h.counts.dead > 0).length : '–';
     v.handlersRunning = hs ? hs.reduce((a, h) => a + h.counts.running, 0) : '–';
+    // Stranded, not merely unregistered: a handler nothing has enqueued for in months is
+    // retired, not broken. It only becomes a problem once work is waiting on it.
+    const stranded = (h) => !h.registered && h.counts.pending + h.counts.queued > 0;
+    v.handlersStranded = hs ? hs.filter(stranded).length : '–';
     const hkey = s.hSortKey, hdir = s.hSortDir === 'asc' ? 1 : -1;
     const hval = (h) => hkey === 'handler' ? h.handler : hkey === 'total' ? h.total : hkey === 'running' ? h.counts.running
       : hkey === 'dead' ? h.counts.dead : hkey === 'rate' ? (h.success_rate === null ? -1 : h.success_rate) : (h.avg_run_ms === null ? -1 : h.avg_run_ms);
@@ -565,14 +669,18 @@ class Component extends DCLogic {
     const hSort = (k) => () => this.setState(s.hSortKey === k ? { hSortDir: s.hSortDir === 'asc' ? 'desc' : 'asc' } : { hSortKey: k, hSortDir: k === 'handler' ? 'asc' : 'desc' });
     v.onHSortHandler = hSort('handler'); v.onHSortTotal = hSort('total'); v.onHSortRunning = hSort('running');
     v.onHSortDead = hSort('dead'); v.onHSortRate = hSort('rate'); v.onHSortAvg = hSort('avg');
-    const flagStyle = (bad) => ({ display: 'inline-block', marginTop: '3px', whiteSpace: 'nowrap', font: '600 9.5px var(--font-heading)', letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 7px', background: bad ? 'var(--k-crit-bg2)' : 'var(--k-warn-bg)', color: bad ? 'var(--k-crit-fg)' : 'var(--k-warn-fg)', border: '1px solid ' + (bad ? 'var(--k-crit-border)' : 'var(--k-warn-border)') });
+    const flagStyle = (bad) => ({ display: 'inline-block', marginTop: '3px', whiteSpace: 'nowrap', font: '600 10.5px var(--font-heading)', letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 7px', background: bad ? 'var(--k-crit-bg2)' : 'var(--k-warn-bg)', color: bad ? 'var(--k-crit-fg)' : 'var(--k-warn-fg)', border: '1px solid ' + (bad ? 'var(--k-crit-border)' : 'var(--k-warn-border)') });
     v.handlerRows = hsorted.map(h => {
       const bad = h.success_rate !== null && h.success_rate < 0.6;
       const warn = h.counts.awaiting_retry > 0;
+      // Outranks the other two flags: a bad success rate is history, but a stranded handler
+      // means the work waiting on it cannot run at all until a worker registers the name.
+      const cutOff = stranded(h);
       return {
         handler: h.handler, total: h.total,
-        queuesShown: h.queues.slice(0, 2),
-        queuesMore: h.queues.length > 2 ? '+' + (h.queues.length - 2) : '',
+        registered: h.registered,
+        queuesShown: h.queues.slice(0, 3),
+        queuesMore: h.queues.length > 3 ? '+' + (h.queues.length - 3) : '',
         queuesAll: h.queues.join(', '),
         backlog: h.counts.pending + h.counts.queued,
         running: h.counts.running, awaiting_retry: h.counts.awaiting_retry, dead: h.counts.dead,
@@ -580,10 +688,12 @@ class Component extends DCLogic {
         deadStyle: { color: h.counts.dead ? 'var(--k-crit-fg)' : 'var(--k-muted)', fontWeight: h.counts.dead ? 700 : 500 },
         successRate: fmtRate(h.success_rate), rateStyle: rateStyle(h.success_rate),
         avgRun: fmtMs(h.avg_run_ms),
-        lastRel: this.relShort(h.last_activity_at), lastAbs: h.last_activity_at || '—',
-        unhealthy: bad || warn,
-        unhealthyLabel: bad ? 'failing · ' + h.counts.dead + ' dead' : 'retrying · ' + h.counts.awaiting_retry,
-        unhealthyStyle: flagStyle(bad),
+        lastDate: this.tsDate(h.last_activity_at) || '—', lastClock: this.tsClock(h.last_activity_at),
+        lastAbs: this.rel(h.last_activity_at),
+        unhealthy: cutOff || bad || warn,
+        unhealthyLabel: cutOff ? 'stranded · ' + (h.counts.pending + h.counts.queued) + ' waiting, no worker'
+          : bad ? 'failing · ' + h.counts.dead + ' dead' : 'retrying · ' + h.counts.awaiting_retry,
+        unhealthyStyle: flagStyle(cutOff || bad),
         onOpen: () => this.go('/handlers/' + encodeURIComponent(h.handler)),
         onKey: (e) => { if (e.key === 'Enter') this.go('/handlers/' + encodeURIComponent(h.handler)); }
       };
@@ -598,12 +708,15 @@ class Component extends DCLogic {
       if (hd) {
         const h = hd.handler;
         const bad = h.success_rate !== null && h.success_rate < 0.6;
-        v.handlerHealthLabel = bad ? 'failing' : h.counts.awaiting_retry ? 'retrying' : 'healthy';
-        v.handlerHealthStyle = Object.assign(this.badge(bad ? 'dead' : h.counts.awaiting_retry ? 'awaiting_retry' : 'success'), { fontSize: '12px' });
+        const cutOff = stranded(h);
+        v.handlerHealthLabel = cutOff ? 'stranded' : !h.registered ? 'unclaimed' : bad ? 'failing' : h.counts.awaiting_retry ? 'retrying' : 'healthy';
+        v.handlerHealthStyle = Object.assign(this.badge(cutOff || bad ? 'dead' : !h.registered || h.counts.awaiting_retry ? 'awaiting_retry' : 'success'), { fontSize: '12px' });
         v.hd = {
           total: h.total, successRate: fmtRate(h.success_rate), avgRun: fmtMs(h.avg_run_ms),
           dead: h.counts.dead, queues: h.queues,
-          lastRel: this.rel(h.last_activity_at), lastAbs: h.last_activity_at || '—',
+          registered: h.registered, workers: h.workers || [],
+          workersEmpty: !h.workers || !h.workers.length,
+          lastRel: this.ts(h.last_activity_at), lastAbs: this.rel(h.last_activity_at),
           stateRows: this.STATES.map(st => ({
             state: st, count: h.counts[st], badgeStyle: this.badge(st),
             share: h.total ? Math.round((h.counts[st] / h.total) * 100) + '%' : '—'
@@ -613,7 +726,7 @@ class Component extends DCLogic {
             idShort: j.id.slice(0, 8) + '…', name: j.name, queue: j.queue, state: j.state,
             badgeStyle: this.badge(j.state), retry_count: j.retry_count,
             retryStyle: { color: j.retry_count > 3 ? 'var(--k-crit-fg)' : j.retry_count > 0 ? 'var(--k-warn-fg)' : 'var(--k-muted)' },
-            updatedRel: this.relShort(j.updated_at), updatedAbs: j.updated_at,
+            updatedRel: this.ts(j.updated_at), updatedAbs: this.rel(j.updated_at),
             onOpen: () => this.go('/jobs/' + j.id)
           }))
         };
@@ -629,6 +742,8 @@ class Component extends DCLogic {
     v.queueCount = qs ? qs.length : '–';
     v.liveWorkers = s.workers ? s.workers.length : '–';
     v.totalInFlight = s.workers ? s.workers.reduce((a, w) => a + w.in_flight, 0) : '–';
+    const qDepth = (q) => q.counts.pending + q.counts.queued + q.counts.running + q.counts.awaiting_retry;
+    const maxDepth = (qs || []).reduce((m, q) => Math.max(m, qDepth(q)), 0);
     v.queueRows = (qs || []).map(q => {
       const workerCount = (s.workers || []).filter(w => w.queues.indexOf(q.queue) !== -1).length;
       const hasBacklog = q.counts.pending + q.counts.queued + q.counts.running + q.counts.awaiting_retry > 0;
@@ -638,17 +753,14 @@ class Component extends DCLogic {
         workerCount: workerCount,
         workersStyle: { color: workerCount === 0 ? 'var(--k-crit-fg)' : 'var(--k-text2)', fontWeight: workerCount === 0 ? 700 : 500 },
         isDead: isDead,
-        deadStyle: { display: 'inline-block', marginTop: '3px', whiteSpace: 'nowrap', font: '600 9.5px var(--font-heading)', letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 7px', background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)' },
+        deadStyle: { display: 'inline-block', marginTop: '3px', whiteSpace: 'nowrap', font: '600 10.5px var(--font-heading)', letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 7px', background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)' },
         pending: q.counts.pending, queued: q.counts.queued, running: q.counts.running,
         awaiting_retry: q.counts.awaiting_retry, redis_buffered: q.redis_buffered,
-        depth: q.counts.pending + q.counts.queued + q.counts.running + q.counts.awaiting_retry,
+        depth: qDepth(q),
         retryStyle: { color: q.counts.awaiting_retry ? 'var(--k-warn-fg)' : 'inherit', fontWeight: q.counts.awaiting_retry ? 600 : 500 },
-        barPending: this.seg(q.counts.pending, q.counts, 'var(--k-faint)'),
-        barQueued: this.seg(q.counts.queued, q.counts, 'var(--k-muted)'),
-        barRunning: this.seg(q.counts.running, q.counts, 'var(--color-accent)'),
-        barRetry: this.seg(q.counts.awaiting_retry, q.counts, 'var(--k-gold)'),
-        ageLabel: q.counts.pending ? this.dur(q.oldest_pending_age_seconds) : '—',
-        ageStyle: q.counts.pending ? this.ageStyle(q.oldest_pending_age_seconds) : { color: 'var(--k-faint)', fontSize: '13px', padding: '1px 8px' },
+        depthBar: this.depthBar(qDepth(q), maxDepth),
+        dead: q.counts.dead,
+        qDeadStyle: { color: q.counts.dead ? 'var(--k-crit-fg)' : 'var(--k-muted)', fontWeight: q.counts.dead ? 700 : 500 },
         onOpen: () => this.go('/jobs?queue=' + q.queue),
         onKey: (e) => { if (e.key === 'Enter') this.go('/jobs?queue=' + q.queue); }
       };
@@ -664,25 +776,21 @@ class Component extends DCLogic {
     v.schedCount = scheds ? scheds.length : '–';
     const upcoming = (scheds || []).filter(j => j.next_check_at).sort((a, b) => Date.parse(a.next_check_at) - Date.parse(b.next_check_at))[0];
     v.schedNextLabel = upcoming ? 'next ' + this.dueLabel(upcoming.next_check_at) : (scheds ? 'none armed' : '');
-    const stalled = (scheds || []).filter(j => j.state === 'dead' || j.state === 'expired');
-    const stag = (kind) => ({
-      display: 'inline-block', whiteSpace: 'nowrap', font: '600 9px var(--font-heading)', letterSpacing: '.06em',
+    const stalled = (scheds || []).filter(j => j.state === 'dead');
+    const stag = {
+      display: 'inline-block', whiteSpace: 'nowrap', font: '600 10.5px var(--font-heading)', letterSpacing: '.06em',
       textTransform: 'uppercase', padding: '2px 7px',
-      background: kind === 'crit' ? 'var(--k-crit-bg2)' : 'transparent',
-      color: kind === 'crit' ? 'var(--k-crit-fg)' : 'var(--k-warn-fg)',
-      border: '1px ' + (kind === 'crit' ? 'solid var(--k-crit-border)' : 'dashed var(--k-warn-border)')
-    });
+      background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)'
+    };
     v.hasStalled = stalled.length > 0;
     v.stalledSummary = stalled.length + (stalled.length === 1 ? ' schedule is not firing' : ' schedules are not firing');
     v.stalledRows = stalled.slice(0, 6).map(j => ({
-      name: j.name, cron_expr: j.cron_expr,
-      tag: j.state === 'dead' ? 'retries exhausted' : 'window closed',
-      tagStyle: stag(j.state === 'dead' ? 'crit' : 'warn'),
-      detail: j.state === 'dead'
-        ? 'died after ' + j.retry_count + ' retries on ' + j.queue
-        : 'ends_at passed on ' + j.queue,
-      metric: 'last run ' + this.rel(j.last_run_at),
-      fix: j.state === 'dead' ? 'rerun to revive →' : 'resubmit with a new window →',
+      name: j.name, cron_expr: j.cron || '',
+      tag: 'retries exhausted',
+      tagStyle: stag,
+      detail: 'died after ' + j.retry_count + ' retries on ' + j.queue,
+      metric: 'updated ' + this.ts(j.updated_at),
+      fix: 'rerun to revive →',
       onOpen: () => this.go('/jobs/' + j.id)
     }));
 
@@ -693,7 +801,7 @@ class Component extends DCLogic {
     v.noDead = !!dead && dead.length === 0;
     v.deadRows = (dead || []).slice(0, 5).map(j => ({
       name: j.name, queue: j.queue, handler: j.handler, retry_count: j.retry_count,
-      updatedRel: this.relShort(j.updated_at), updatedAbs: j.updated_at,
+      updatedRel: this.ts(j.updated_at), updatedAbs: this.rel(j.updated_at),
       onOpen: () => this.go('/jobs/' + j.id)
     }));
 
@@ -707,7 +815,7 @@ class Component extends DCLogic {
       color: on ? 'var(--color-bg)' : 'var(--k-text2)',
       border: '1px solid ' + (on ? 'var(--color-accent-700)' : 'var(--color-divider)')
     });
-    v.typeChips = [['', 'all'], ['adhoc', 'one-shot'], ['cron', 'recurring']].map(pair => ({
+    v.typeChips = [['', 'all'], ['adhoc', 'adhoc'], ['cron', 'recurring']].map(pair => ({
       label: pair[1], pressed: r.jobType === pair[0] ? 'true' : 'false',
       style: chipStyle(r.jobType === pair[0]),
       onPick: () => { const rr = this.route(); rr.jobType = pair[0]; rr.offset = 0; this.go(this.urlFor(rr)); }
@@ -755,10 +863,22 @@ class Component extends DCLogic {
         ? 'This page is past the end of the result set — offset ' + r.offset + ' with limit ' + this.limit() + '. Rows may have moved under concurrent inserts; step back a page.'
         : 'Filters active: ' + v.filterSummary + '. Nothing in the store matches that combination right now.';
     v.searchValue = s.search;
-    v.onSearchChange = (e) => this.setState({ search: e.target.value });
-    const submitSearch = () => { const rr = this.route(); rr.q = (this.state.search || '').trim(); rr.offset = 0; this.go(this.urlFor(rr)); };
-    v.onSearchSubmit = submitSearch;
+    const submitSearch = () => {
+      clearTimeout(this.searchTimer); this.searchTimer = null;
+      const rr = this.route(); rr.q = (this.state.search || '').trim(); rr.offset = 0;
+      this.setState({ searchPending: false });
+      this.go(this.urlFor(rr));
+    };
+    // Fires itself once typing settles; Enter short-circuits the wait.
+    v.onSearchChange = (e) => {
+      const val = e.target.value;
+      clearTimeout(this.searchTimer);
+      this.setState({ search: val, searchPending: val.trim() !== (r.q || '') });
+      this.searchTimer = setTimeout(submitSearch, 2000);
+    };
     v.onSearchKey = (e) => { if (e.key === 'Enter') submitSearch(); };
+    v.searchHint = s.searchPending ? 'searching…' : '↵ to search now';
+    v.searchHintStyle = { fontSize: '11px', color: s.searchPending ? 'var(--color-accent)' : 'var(--k-muted)', whiteSpace: 'nowrap', alignSelf: 'center' };
     const arrow = (key) => s.sortKey === key ? (s.sortDir === 'asc' ? ' ▲' : ' ▼') : '';
     v.sortArrowId = arrow('id'); v.sortArrowName = arrow('name'); v.sortArrowQueue = arrow('queue');
     v.sortArrowHandler = arrow('handler'); v.onSortHandler = () => this.toggleSort('handler');
@@ -789,25 +909,33 @@ class Component extends DCLogic {
         retry_count: j.retry_count,
         retryStyle: { color: j.retry_count > 3 ? 'var(--k-crit-fg)' : j.retry_count > 0 ? 'var(--k-warn-fg)' : 'var(--k-muted)' },
         delivery_count: j.delivery_count,
-        createdRel: this.relShort(j.created_at), createdAbs: j.created_at,
-        updatedRel: this.relShort(j.updated_at), updatedAbs: j.updated_at,
+        createdDate: this.tsDate(j.created_at), createdClock: this.tsClock(j.created_at), createdAbs: this.rel(j.created_at),
+        updatedDate: this.tsDate(j.updated_at), updatedClock: this.tsClock(j.updated_at), updatedAbs: this.rel(j.updated_at),
+        nextRunDate: this.tsDate(j.next_check_at) || '—', nextRunClock: this.tsClock(j.next_check_at),
         isCron: (j.job_type || 'adhoc') === 'cron',
-        cron_expr: j.cron_expr, cronHuman: j.cron_expr ? this.cronHuman(j.cron_expr) : '',
-        nextRun: j.next_check_at ? this.dueLabel(j.next_check_at) : '—',
-        nextRunAbs: j.next_check_at || 'not armed',
+        typeLabel: (j.job_type || 'adhoc') === 'cron' ? 'recurring' : 'adhoc',
+        typeStyle: this.typeTag((j.job_type || 'adhoc') === 'cron'),
+        cron_expr: j.cron || '', cronHuman: j.cron ? this.cronHuman(j.cron) : '',
+        nextRun: this.ts(j.next_check_at),
+        nextRunAbs: j.next_check_at ? this.dueLabel(j.next_check_at) : 'not armed',
         nextRunStyle: { color: j.next_check_at ? 'var(--k-text2)' : 'var(--k-faint)' },
         expanded: exp, expandArrow: exp ? '▾' : '▸',
         onToggleExpand: () => this.toggleRowExpand(j),
         attemptsLoading: cache === 'loading',
         attemptsEmpty: Array.isArray(cache) && cache.length === 0,
         attemptsReady: Array.isArray(cache) && cache.length > 0,
-        attemptsRows: atRows.map(a => ({
-          attempt_no: a.attempt_no, worker_id: this.workerName(a.worker_id), workerIdRaw: a.worker_id, outcome: a.outcome,
-          outcomeStyle: this.badge(a.outcome), error: a.error || '—',
-          startedRel: this.relShort(a.started_at),
-          duration: a.finished_at ? this.msDur(a.started_at, a.finished_at) : 'running…',
-          onOpen: () => this.go('/jobs/' + j.id)
-        }))
+        attemptsRows: atRows.map(a => {
+          const wk = this.workerLabel(a.worker_id);
+          return {
+            attempt_no: a.attempt_no, worker_id: wk.name, workerIdRaw: wk.title,
+            workerStyle: { color: wk.missing ? 'var(--k-faint)' : 'var(--k-text2)', fontStyle: wk.missing ? 'italic' : 'normal', whiteSpace: 'nowrap' },
+            outcome: a.outcome,
+            outcomeStyle: this.badge(a.outcome), error: a.error || '—',
+            startedDate: this.tsDate(a.started_at), startedClock: this.tsClock(a.started_at), startedAbs: this.rel(a.started_at),
+            duration: a.finished_at ? this.msDur(a.started_at, a.finished_at) : 'running…',
+            onOpen: () => this.go('/jobs/' + j.id)
+          };
+        })
       };
     });
 
@@ -816,7 +944,8 @@ class Component extends DCLogic {
     v.nextDisabled = !(pg && pg.has_more);
     v.onPrev = () => this.stepPage(-1);
     v.onNext = () => this.stepPage(1);
-    v.pageLabel = pg ? 'rows ' + (pg.offset + 1) + '–' + (pg.offset + (s.jobs ? s.jobs.length : 0)) + (pg.has_more ? ' · more available' : ' · end of results') : '';
+    const pageRows = r.path === '/attempts' ? (s.attempts || []).length : (s.jobs || []).length;
+    v.pageLabel = pg ? 'rows ' + (pg.offset + 1) + '–' + (pg.offset + pageRows) + (pg.has_more ? ' · more available' : ' · end of results') : '';
 
     // schedules
     v.schedLoading = !s.schedDone && !s.schedules && !s.schedErr;
@@ -828,13 +957,12 @@ class Component extends DCLogic {
       return av - bv;
     }).map(j => ({
       name: j.name, handler: j.handler, queue: j.queue, state: j.state,
-      cron_expr: j.cron_expr, human: this.cronHuman(j.cron_expr),
+      cron_expr: j.cron || '', human: j.cron ? this.cronHuman(j.cron) : '—',
       badgeStyle: this.badge(j.state),
       stalledNote: j.state === 'dead' ? 'will not fire until rerun' : j.state === 'expired' ? 'window closed' : '',
-      lastRel: j.last_run_at ? this.rel(j.last_run_at) : 'never',
-      lastAbs: j.last_run_at || '—',
-      nextRel: this.dueLabel(j.next_check_at),
-      nextAbs: j.next_check_at || 'no next fire',
+      lastRel: this.ts(j.updated_at), lastAbs: this.rel(j.updated_at),
+      nextRel: this.ts(j.next_check_at),
+      nextAbs: j.next_check_at ? this.dueLabel(j.next_check_at) : 'no next fire',
       nextStyle: { color: j.next_check_at ? 'var(--k-text2)' : 'var(--k-crit-fg)', fontWeight: j.next_check_at ? 500 : 700 },
       windowFrom: j.starts_at ? 'from ' + j.starts_at.slice(5, 16).replace('T', ' ') : 'from creation',
       windowTo: j.ends_at ? 'to ' + j.ends_at.slice(5, 16).replace('T', ' ') : 'no end',
@@ -863,10 +991,15 @@ class Component extends DCLogic {
       v.job = j;
       v.jobBadgeStyle = this.badge(j.state);
       v.jobHandlerHref = '/handlers/' + encodeURIComponent(j.handler || '');
-      v.nextCheckLabel = j.next_check_at ? 'in ' + this.dur((Date.parse(j.next_check_at) - Date.now()) / 1000) : '—';
-      v.nextCheckAbs = this.abs(j.next_check_at);
-      v.createdRel = this.rel(j.created_at); v.createdAbs = j.created_at;
-      v.updatedRel = this.rel(j.updated_at); v.updatedAbs = j.updated_at;
+      v.nextCheckLabel = this.ts(j.next_check_at);
+      v.nextCheckAbs = j.next_check_at ? this.dueLabel(j.next_check_at) : 'not armed';
+      v.createdRel = this.ts(j.created_at); v.createdAbs = this.rel(j.created_at);
+      v.updatedRel = this.ts(j.updated_at); v.updatedAbs = this.rel(j.updated_at);
+      v.jobTypeLabel = (j.job_type || 'adhoc') === 'cron' ? 'recurring' : 'adhoc';
+      v.jobTypeStyle = this.typeTag((j.job_type || 'adhoc') === 'cron');
+      v.jobTypeRaw = j.job_type || 'adhoc';
+      v.jobNextRunLabel = this.ts(j.next_run_at);
+      v.jobNextRunAbs = j.next_run_at ? this.dueLabel(j.next_run_at) : 'not armed';
       v.payloadOpen = s.payloadOpen;
       v.payloadToggleLabel = (s.payloadOpen ? '▾ ' : '▸ ') + 'payload';
       v.payloadJson = JSON.stringify(j.payload, null, 2);
@@ -876,10 +1009,10 @@ class Component extends DCLogic {
       const isCron = (j.job_type || 'adhoc') === 'cron';
       const runCount = (d.attempts || []).length;
       v.jobIsCron = isCron;
-      v.jobCronExpr = j.cron_expr || '';
-      v.jobCronHuman = j.cron_expr ? this.cronHuman(j.cron_expr) : '';
+      v.jobCronExpr = j.cron || '';
+      v.jobCronHuman = j.cron ? this.cronHuman(j.cron) : '';
       v.schedTagStyle = {
-        display: 'inline-block', font: '600 9.5px var(--font-heading)', letterSpacing: '.08em',
+        display: 'inline-block', font: '600 10.5px var(--font-heading)', letterSpacing: '.08em',
         textTransform: 'uppercase', padding: '2px 8px', background: 'var(--k-warn-bg)',
         color: 'var(--k-warn-fg)', border: '1px solid var(--k-warn-border)'
       };
@@ -887,14 +1020,16 @@ class Component extends DCLogic {
       v.jobStalledNote = j.state === 'dead'
         ? 'This schedule stopped. One occurrence exhausted max_retries, so the row went dead and will not re-arm — rerun it once the handler is fixed.'
         : 'The window closed at ' + (j.ends_at || '—') + '. Expired is terminal and not rerunnable; submit a new schedule with a new ends_at.';
-      v.jobStartsLabel = j.starts_at ? (Date.parse(j.starts_at) > Date.now() ? this.dueLabel(j.starts_at) : this.rel(j.starts_at)) : 'from creation';
-      v.jobStartsAbs = j.starts_at || '—';
-      v.jobEndsLabel = j.ends_at ? (Date.parse(j.ends_at) > Date.now() ? 'in ' + this.dur((Date.parse(j.ends_at) - Date.now()) / 1000) : 'closed ' + this.rel(j.ends_at)) : 'no end';
-      v.jobEndsAbs = j.ends_at || '—';
-      v.lastRunLabel = j.last_run_at ? this.rel(j.last_run_at) : 'never run';
-      v.lastRunAbs = j.last_run_at || '—';
+      v.jobStartsLabel = j.starts_at ? this.ts(j.starts_at) : 'from creation';
+      v.jobStartsAbs = j.starts_at ? (Date.parse(j.starts_at) > Date.now() ? this.dueLabel(j.starts_at) : this.rel(j.starts_at)) : '—';
+      v.jobEndsLabel = j.ends_at ? this.ts(j.ends_at) : 'no end';
+      v.jobEndsAbs = j.ends_at ? (Date.parse(j.ends_at) > Date.now() ? this.dueLabel(j.ends_at) : 'closed ' + this.rel(j.ends_at)) : '—';
+      // There is no last_run_at on the server; the newest attempt is when it actually ran.
+      const lastAttempt = (d.attempts || []).slice().sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))[0];
+      v.lastRunLabel = lastAttempt ? this.ts(lastAttempt.started_at) : 'never run';
+      v.lastRunAbs = lastAttempt ? this.rel(lastAttempt.started_at) : '—';
       v.jobRunCount = runCount;
-      const up = isCron && ['dead', 'expired', 'cancelled'].indexOf(j.state) === -1 ? this.cronPreview(j.cron_expr, j.starts_at, j.ends_at, 3) : [];
+      const up = isCron && ['dead', 'expired', 'cancelled'].indexOf(j.state) === -1 ? this.cronPreview(j.cron, j.starts_at, j.ends_at, 3) : [];
       v.jobHasUpcoming = up.length > 0;
       v.jobUpcoming = up.map(t => ({ abs: t.slice(0, 16).replace('T', ' ') + 'Z', rel: this.dur((Date.parse(t) - Date.now()) / 1000) }));
       const terminal = ['success', 'dead', 'cancelled', 'expired'].indexOf(j.state) !== -1;
@@ -911,7 +1046,7 @@ class Component extends DCLogic {
       v.onPause = () => this.write('pause');
       v.onResume = () => this.write('resume');
       // No paused_at column on the server; updated_at is the transition that paused it.
-      v.pausedRel = j.updated_at ? this.rel(j.updated_at) : '';
+      v.pausedRel = j.updated_at ? this.ts(j.updated_at) : '';
       v.pausedNote = 'The scheduler skips this row entirely. Resuming arms it at the next slot — occurrences missed while paused are dropped, not backfilled.';
 
       v.scheduleLabel = isCron ? 'Reschedule' : 'Schedule';
@@ -924,7 +1059,7 @@ class Component extends DCLogic {
       v.onCloseSchedule = () => this.setState({ schedOpen: false });
       v.scheduleBlurb = isCron
         ? 'Replaces the expression and window on this row. The next fire is recomputed immediately; history, run count and identity are untouched.'
-        : 'Turns this one-shot into a recurring job. Same row, same id — the payload and handler do not change.';
+        : 'Turns this adhoc job into a recurring job. Same row, same id — the payload and handler do not change.';
       const sf = s.schedForm;
       v.schedForm = sf;
       v.onSchedPreset = (e) => { this.setSchedForm('preset', e.target.value); if (e.target.value !== 'custom') this.setSchedForm('cron', e.target.value); };
@@ -954,19 +1089,45 @@ class Component extends DCLogic {
       v.actionError = s.actionErr; v.actionErrorCode = s.actionCode; v.actionOk = s.actionOk;
       v.onDismissActionError = () => this.setState({ actionErr: null });
       const atAll = (d.attempts || []).slice().sort((a, b) => a.attempt_no - b.attempt_no);
-      const jl = [{ t: j.created_at, line: 'created · queue=' + j.queue + ' priority=' + j.priority }];
-      atAll.forEach(a => {
-        jl.push({ t: a.started_at, line: 'attempt ' + a.attempt_no + ' started on ' + this.workerName(a.worker_id) + ' (' + a.worker_id + ')' });
-        if (a.finished_at) {
-          if (a.outcome === 'success') jl.push({ t: a.finished_at, line: 'attempt ' + a.attempt_no + ' succeeded' });
-          else if (a.outcome === 'failed') jl.push({ t: a.finished_at, line: 'attempt ' + a.attempt_no + ' failed: ' + a.error });
-          else if (a.outcome === 'superseded') jl.push({ t: a.finished_at, line: 'attempt ' + a.attempt_no + ' superseded (job cancelled)' });
+
+      const newest = atAll.length ? atAll[atAll.length - 1] : null;
+      const selId = s.logAttemptId || (newest ? newest.id : null);
+      const selected = atAll.filter(a => a.id === selId)[0] || newest;
+      v.logAttemptOptions = atAll.slice().reverse().map(a => ({
+        value: a.id,
+        label: 'attempt ' + a.attempt_no + ' · ' + a.outcome + ' · ' + this.ts(a.started_at)
+      }));
+      v.logAttemptId = selected ? selected.id : '';
+      v.onLogAttemptChange = (e) => this.selectLogAttempt(j.id, e.target.value);
+      v.hasAttemptsForLogs = atAll.length > 0;
+      const cachedLogs = selected ? s.logs[selected.id] : null;
+      if (selected && cachedLogs === undefined) this.loadLogs(j.id, selected.id);
+      v.logsLoading = cachedLogs === 'loading';
+      v.logsError = cachedLogs === 'error';
+      const logLines = Array.isArray(cachedLogs) ? cachedLogs : [];
+      v.logsReady = logLines.length > 0;
+      v.logRows = logLines.map(l => ({
+        t: this.tsTime(l.created_at), line: l.line, level: l.level,
+        levelStyle: {
+          color: l.level === 'error' || l.level === 'fatal' ? 'var(--k-crit-fg)' : l.level === 'warning' ? 'var(--k-gold)' : 'var(--k-faint2)',
+          textTransform: 'uppercase', fontSize: '10px', letterSpacing: '.08em', minWidth: '34px'
         }
-      });
-      if (j.state === 'dead') jl.push({ t: j.updated_at, line: 'exhausted retries · moved to dead' });
-      if (j.state === 'cancelled') jl.push({ t: j.updated_at, line: 'cancelled by operator' });
-      if (j.state === 'awaiting_retry' && j.next_check_at) jl.push({ t: j.updated_at, line: 'scheduled for retry at ' + j.next_check_at });
-      v.jobLogRows = jl.sort((a, b) => Date.parse(a.t) - Date.parse(b.t)).map(l => ({ t: new Date(l.t).toLocaleTimeString(), line: l.line }));
+      }));
+      // The handler may never have called the logger; the lifecycle is still worth showing.
+      v.logsFellBack = !!selected && Array.isArray(cachedLogs) && logLines.length === 0;
+      const jl = [];
+      if (selected) {
+        const wk = this.workerLabel(selected.worker_id);
+        jl.push({ t: selected.started_at, line: 'attempt ' + selected.attempt_no + ' started on ' + wk.name });
+        if (selected.finished_at) {
+          if (selected.outcome === 'success') jl.push({ t: selected.finished_at, line: 'attempt ' + selected.attempt_no + ' succeeded' });
+          else if (selected.outcome === 'lost') jl.push({ t: selected.finished_at, line: 'attempt ' + selected.attempt_no + ' lost: ' + (selected.error || 'no worker claimed it') });
+          else if (selected.outcome === 'superseded') jl.push({ t: selected.finished_at, line: 'attempt ' + selected.attempt_no + ' superseded (job cancelled)' });
+          else jl.push({ t: selected.finished_at, line: 'attempt ' + selected.attempt_no + ' ' + selected.outcome + ': ' + (selected.error || '—') });
+        }
+      }
+      v.lifecycleRows = jl.sort((a, b) => Date.parse(a.t) - Date.parse(b.t)).map(l => ({ t: this.tsTime(l.t), line: l.line }));
+
       const at = s.attemptsFilter === 'last5' ? atAll.slice(-5) : s.attemptsFilter === 'last10' ? atAll.slice(-10) : atAll;
       v.attemptsCount = at.length + ' of ' + atAll.length + (atAll.length === 1 ? ' attempt' : ' attempts') + ' shown';
       v.attemptsEmpty = atAll.length === 0;
@@ -977,26 +1138,48 @@ class Component extends DCLogic {
       v.attemptRows = at.map(a => {
         const long = !!a.error && a.error.length > 74;
         const open = !!s.expanded[a.attempt_no];
+        const wk = this.workerLabel(a.worker_id);
         return {
-          attempt_no: a.attempt_no, worker_id: this.workerName(a.worker_id), workerIdRaw: a.worker_id, outcome: a.outcome,
+          attempt_no: a.attempt_no, worker_id: wk.name, workerIdRaw: wk.title,
+          workerStyle: { color: wk.missing ? 'var(--k-faint)' : 'var(--k-text2)', fontStyle: wk.missing ? 'italic' : 'normal', whiteSpace: 'nowrap' },
+          outcome: a.outcome,
           outcomeStyle: this.badge(a.outcome),
           error: a.error || '—',
           canExpand: long,
           toggleLabel: open ? 'collapse' : 'expand',
           onToggle: () => this.setState({ expanded: Object.assign({}, s.expanded, { [a.attempt_no]: !open }) }),
-          errorStyle: {
+          // Collapsed errors clamp to two lines rather than nowrap: a single long line sets
+          // the column's min-content width and pushes the whole table into a scrollbar.
+          errorStyle: Object.assign({
             fontSize: '12.5px', color: a.error ? 'var(--k-crit-fg2)' : 'var(--k-faint)', lineHeight: 1.45,
             fontFamily: a.error ? 'ui-monospace,Menlo,Consolas,monospace' : 'inherit',
-            whiteSpace: open ? 'pre-wrap' : 'nowrap',
-            overflow: open ? 'visible' : 'hidden',
-            textOverflow: 'ellipsis', wordBreak: open ? 'break-word' : 'normal'
-          },
-          startedRel: this.relShort(a.started_at), startedAbs: a.started_at,
-          finishedRel: a.finished_at ? this.relShort(a.finished_at) : 'running',
-          finishedAbs: this.abs(a.finished_at),
+            wordBreak: 'break-word'
+          }, open
+            ? { whiteSpace: 'pre-wrap' }
+            : { display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical', overflow: 'hidden' }),
+          startedDate: this.tsDate(a.started_at), startedClock: this.tsClock(a.started_at), startedAbs: this.rel(a.started_at),
+          finishedDate: a.finished_at ? this.tsDate(a.finished_at) : 'running', finishedClock: a.finished_at ? this.tsClock(a.finished_at) : '',
+          finishedAbs: a.finished_at ? this.rel(a.finished_at) : 'still running',
           duration: a.finished_at ? this.msDur(a.started_at, a.finished_at) : this.dur((Date.now() - Date.parse(a.started_at)) / 1000) + '…'
         };
       });
+
+      v.isJobTabOverview = s.jobTab === 'overview';
+      v.isJobTabAttempts = s.jobTab === 'attempts';
+      v.isJobTabLogs = s.jobTab === 'logs';
+      const jobTabStyle = (on) => ({
+        font: '600 12px var(--font-heading)', letterSpacing: '.06em', textTransform: 'uppercase',
+        padding: '6px 14px', cursor: 'pointer', borderRadius: 0, background: 'transparent',
+        color: on ? 'var(--color-text)' : 'var(--k-muted)',
+        border: 'none', borderBottom: '2px solid ' + (on ? 'var(--color-accent)' : 'transparent')
+      });
+      v.jobTabOverviewStyle = jobTabStyle(s.jobTab === 'overview');
+      v.jobTabAttemptsStyle = jobTabStyle(s.jobTab === 'attempts');
+      v.jobTabLogsStyle = jobTabStyle(s.jobTab === 'logs');
+      v.onJobTabOverview = () => this.setState({ jobTab: 'overview' });
+      v.onJobTabAttempts = () => this.setState({ jobTab: 'attempts' });
+      v.onJobTabLogs = () => this.setState({ jobTab: 'logs' });
+      v.jobTabAttemptsLabel = 'Attempts (' + atAll.length + ')';
     }
 
     // workers
@@ -1031,8 +1214,8 @@ class Component extends DCLogic {
           onOpen: (e) => { e.stopPropagation(); this.go('/jobs/' + j.id); }
         };
       }),
-      lastSeenRel: this.rel(w.last_seen), lastSeenAbs: w.last_seen,
-      uptime: this.dur((Date.now() - Date.parse(w.started_at)) / 1000), startedAbs: w.started_at,
+      lastSeenRel: this.rel(w.last_seen), lastSeenAbs: this.ts(w.last_seen),
+      uptime: this.dur((Date.now() - Date.parse(w.started_at)) / 1000), startedAbs: this.ts(w.started_at),
       onOpen: () => this.go('/workers/' + w.id)
     }));
 
@@ -1052,8 +1235,8 @@ class Component extends DCLogic {
         v.workerStatusStyle = Object.assign(this.badge(online ? 'running' : 'awaiting_retry'), { fontSize: '12px' });
         v.workerQueueTags = w.queues;
         v.workerInFlight = w.in_flight;
-        v.workerLastSeenRel = this.rel(w.last_seen); v.workerLastSeenAbs = w.last_seen;
-        v.workerUptime = this.dur((Date.now() - Date.parse(w.started_at)) / 1000) + ' up'; v.workerStartedAbs = w.started_at;
+        v.workerLastSeenRel = this.rel(w.last_seen); v.workerLastSeenAbs = this.ts(w.last_seen);
+        v.workerUptime = this.dur((Date.now() - Date.parse(w.started_at)) / 1000) + ' up'; v.workerStartedAbs = this.ts(w.started_at);
         const rj = w.in_flight_jobs || [];
         v.workerIdle = rj.length === 0;
         v.workerRunningReady = rj.length > 0;
@@ -1076,18 +1259,54 @@ class Component extends DCLogic {
         v.workerActivityRows = act.map(a => ({
           job_name: a.job_name, queue: a.queue, outcome: a.outcome,
           outcomeStyle: this.badge(a.outcome),
-          startedRel: this.relShort(a.started_at), startedAbs: a.started_at,
+          startedRel: this.ts(a.started_at), startedAbs: this.rel(a.started_at),
           duration: a.finished_at ? this.msDur(a.started_at, a.finished_at) : 'running…',
           onOpen: () => this.go('/jobs/' + a.job_id)
         }));
       }
     }
 
+    // attempts
+    const ats = s.attempts;
+    v.attemptsPageLoading = !s.attemptsDone && !ats && !s.attemptsErr;
+    v.attemptsPageError = s.attemptsErr; v.attemptsPageErrorCode = s.attemptsCode;
+    v.attemptsPageEmpty = !!ats && ats.length === 0;
+    v.attemptsPageReady = !!ats && ats.length > 0;
+    v.attemptsRequestPath = '/jobs/attempts?' + this.attemptsQuery(r);
+    v.outcomeChips = [['', 'all'], ['failed', 'failed'], ['lost', 'lost'], ['superseded', 'superseded'], ['in_progress', 'running'], ['success', 'success']].map(pair => ({
+      label: pair[1], pressed: r.outcome === pair[0] ? 'true' : 'false',
+      style: chipStyle(r.outcome === pair[0]),
+      onPick: () => { const rr = this.route(); rr.outcome = pair[0]; rr.offset = 0; this.go(this.attemptsUrlFor(rr)); }
+    }));
+    v.attemptsFilterSummary = [r.outcome ? 'outcome=' + r.outcome : '', r.queue ? 'queue=' + r.queue : '', r.handler ? 'handler=' + r.handler : '']
+      .filter(Boolean).join(' · ') || 'no filters';
+    v.onClearAttemptFilters = () => this.go('/attempts');
+    v.attemptPageRows = (ats || []).map(a => {
+      const wk = this.workerLabel(a.worker_id);
+      return {
+        idShort: a.id.slice(0, 8) + '…',
+        job_name: a.job_name, handler: a.handler, queue: a.queue,
+        handlerHref: '/handlers/' + encodeURIComponent(a.handler || ''),
+        worker_id: wk.name, workerIdRaw: wk.title,
+        workerStyle: { color: wk.missing ? 'var(--k-faint)' : 'var(--k-text2)', fontStyle: wk.missing ? 'italic' : 'normal', whiteSpace: 'nowrap' },
+        outcome: a.outcome, outcomeStyle: this.badge(a.outcome),
+        error: a.result || '—',
+        errorStyle: {
+          fontSize: '12.5px', color: a.result ? 'var(--k-crit-fg2)' : 'var(--k-faint)', lineHeight: 1.45,
+          fontFamily: a.result ? 'ui-monospace,Menlo,Consolas,monospace' : 'inherit', wordBreak: 'break-word'
+        },
+        startedDate: this.tsDate(a.started_at), startedClock: this.tsClock(a.started_at), startedAbs: this.rel(a.started_at),
+        duration: a.finished_at ? this.msDur(a.started_at, a.finished_at) : 'running…',
+        onOpen: () => this.go('/jobs/' + a.job_id),
+        onKey: (e) => { if (e.key === 'Enter') this.go('/jobs/' + a.job_id); }
+      };
+    });
+
     // submit
     v.form = s.form;
     v.formQueueOptions = (s.queues || []).map(q => q.queue);
     const mode = s.form.mode || 'once';
-    v.modeChips = [['once', 'run once'], ['cron', 'recurring']].map(pair => ({
+    v.modeChips = [['once', 'adhoc'], ['cron', 'recurring']].map(pair => ({
       label: pair[1], pressed: mode === pair[0] ? 'true' : 'false',
       style: chipStyle(mode === pair[0]),
       onPick: () => this.setForm('mode', pair[0])

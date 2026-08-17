@@ -7,79 +7,153 @@
 <link rel="stylesheet" href="/styles.css">
 <style>
 :root{
-  --k-ink:#1d1f20;--k-ink900:#2b2b2d;--k-muted:#7a7a7d;--k-text2:#5d5d60;--k-faint:#b7b7ba;--k-faint2:#98989b;
+  --k-ink:#1d1f20;--k-ink900:#2b2b2d;--k-muted:#5f6165;--k-text2:#3f4144;--k-faint:#93959a;--k-faint2:#76787c;
   --k-line:#d4d4d7;--k-surface2:#e7e7ea;--k-neutral-bg:#d9dde0;
   --k-crit-bg:#f7dedc;--k-crit-bg2:#f3d3d1;--k-crit-fg:#7f2320;--k-crit-fg2:#5c1a17;--k-crit-border:#c98b86;
   --k-warn-bg:#f4e3c0;--k-warn-fg:#6b4a10;--k-warn-border:#d9bd7e;
   --k-ok-bg:#cfe6d4;--k-ok-fg:#1f5130;--k-ok-border:#8fbb9c;
+  --k-lost-bg:#fadfc6;--k-lost-fg:#8a4212;--k-lost-border:#dda469;
+  --k-sup-bg:#ded9ec;--k-sup-fg:#453563;--k-sup-border:#a99fc4;
+  --k-info-bg:#d3e0ee;--k-info-fg:#1f3f5e;--k-info-border:#8aabc9;
   --k-red:#c0574f;--k-gold:#c9a24a;
 }
 :root[data-theme="dark"]{
   --color-bg:#16181a;--color-surface:#1e2124;--color-text:#e6e7e9;
   --color-divider:color-mix(in srgb,#e8e9eb 18%,transparent);
   --color-accent:#7fa8cf;--color-accent-2:#93aac4;--color-accent-700:#a8c4e0;
-  --k-ink:#e8e9eb;--k-ink900:#000000;--k-muted:#8b8d91;--k-text2:#a9abaf;--k-faint:#626468;--k-faint2:#5a5c60;
+  --k-ink:#e8e9eb;--k-ink900:#000000;--k-muted:#a3a5aa;--k-text2:#c4c6ca;--k-faint:#83858a;--k-faint2:#7d7f84;
   --k-line:#33363a;--k-surface2:#212427;--k-neutral-bg:#2a2d31;
   --k-crit-bg:#3a1a19;--k-crit-bg2:#4a1f1d;--k-crit-fg:#f0a19c;--k-crit-fg2:#f6c9c5;--k-crit-border:#7a3a36;
   --k-warn-bg:#3a2f14;--k-warn-fg:#e3bd72;--k-warn-border:#6d5726;
   --k-ok-bg:#16301f;--k-ok-fg:#8fd3a5;--k-ok-border:#35634a;
+  --k-lost-bg:#3d2612;--k-lost-fg:#f0a95f;--k-lost-border:#7d5225;
+  --k-sup-bg:#272338;--k-sup-fg:#bdb0dd;--k-sup-border:#4e4470;
+  --k-info-bg:#152634;--k-info-fg:#94c1e4;--k-info-border:#37546e;
   --k-red:#d4736b;--k-gold:#d2ad5c;
 }
 :root[data-theme="dark"] .input,:root[data-theme="dark"] select,:root[data-theme="dark"] textarea{background:var(--color-surface);color:var(--color-text)}
-body{margin:0;background:var(--color-bg);font-size:14px}
+body{margin:0;background:var(--color-bg);font-size:15px}
 :root{color-scheme:light}
 :root[data-theme="dark"]{color-scheme:dark}
 input[type="checkbox"]{accent-color:var(--color-accent)}
 a{color:var(--color-accent)}
 a:hover{color:var(--color-accent-700)}
-.k-t{width:100%;border-collapse:collapse;font-size:13px}
-.k-t th{text-align:left;font-family:var(--font-body);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted);padding:8px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap;background:var(--color-bg);position:sticky;top:0}
-.k-t td{padding:7px 12px;border-bottom:1px solid color-mix(in srgb,var(--k-ink) 7%,transparent);vertical-align:top}
+.k-t{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:auto}
+.k-t th{text-align:left;font-family:var(--font-body);font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--k-muted);padding:8px 12px;border-bottom:1px solid var(--color-divider);white-space:nowrap;background:var(--color-bg);position:sticky;top:0}
+.k-t td{padding:8px 12px;border-bottom:1px solid color-mix(in srgb,var(--k-ink) 7%,transparent);vertical-align:top;overflow-wrap:break-word}
 .k-t tbody tr:hover{background:color-mix(in srgb,var(--k-ink) 4%,transparent)}
-.k-num{font-variant-numeric:tabular-nums;text-align:right}
-.k-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+/* Every column reads left-aligned; k-num only keeps digits on a fixed advance
+   so counts still line up vertically. */
+.k-num{font-variant-numeric:tabular-nums;text-align:left}
+.k-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
 .k-click{cursor:pointer}
 .k-side a{display:block;padding:6px 10px;color:var(--k-text2);text-decoration:none;border-left:2px solid transparent;letter-spacing:.01em}
 .k-side a:hover{color:var(--color-text);background:color-mix(in srgb,var(--k-ink) 4%,transparent)}
 .k-side a[aria-current="page"]{color:var(--color-text);border-left-color:var(--color-accent);background:color-mix(in srgb,var(--k-ink) 5%,transparent);font-weight:500}
+
+/* ── layout shell ──────────────────────────────────────────────────────── */
+.k-shell{min-height:100vh;font-family:var(--font-body);color:var(--color-text);display:flex;align-items:flex-start}
+.k-side{position:sticky;top:0;flex:0 0 208px;height:100vh;display:flex;flex-direction:column;gap:26px;padding:16px 14px;background:var(--color-bg);border-right:1px solid var(--color-divider);z-index:30}
+.k-side nav{display:flex;flex-direction:column;gap:2px;font-size:13.5px}
+.k-side a.k-brand{display:flex;flex-direction:column;gap:3px;padding:2px 10px;color:inherit}
+.k-brand-sub{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--k-muted)}
+.k-side a.k-nav-docs{margin-top:12px;padding-top:12px;border-top:1px solid var(--color-divider)}
+.k-side-foot{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding:0 10px 2px 12px}
+.k-theme-btn{justify-content:flex-start;padding:5px 8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;width:100%}
+.k-poll{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--k-muted);letter-spacing:.02em}
+.k-main{flex:1;min-width:0;padding-bottom:60px}
+.k-connlost{position:sticky;top:0;z-index:20;background:var(--k-warn-bg);border-bottom:1px solid var(--k-warn-border);padding:5px 26px;font-size:11.5px;color:var(--k-warn-fg);letter-spacing:.02em}
+/* Fluid: every prose block below caps its own measure, so the page itself is
+   free to give all remaining width to the tables. */
+.k-page{padding:26px}
+/* Page headers put an h1 beside a long endpoint string — let it drop instead
+   of pushing the page wide. */
+.k-page div:has(> h1){flex-wrap:wrap}
+.k-submit-grid{display:grid;grid-template-columns:minmax(320px,440px) minmax(280px,1fr);gap:30px;align-items:start;max-width:1080px}
+
+/* The blueprint corner marks are absolutely positioned 6px outside the frame,
+   so scrolling on the frame itself counts them as overflow and pins a
+   horizontal bar open even when the table fits. Scroll an inner box instead. */
+.k-scroll{overflow-x:auto}
+
+/* ── responsive ────────────────────────────────────────────────────────── */
+@media (max-width:1500px){
+  .k-t{font-size:13px}
+  .k-t th,.k-t td{padding:7px 9px}
+}
+@media (max-width:1200px){
+  .k-page{padding:20px}
+  .k-t{font-size:12.5px}
+  .k-t th,.k-t td{padding:6px 7px}
+  .k-t th{letter-spacing:.05em}
+  .k-side{flex-basis:172px}
+}
+@media (max-width:900px){
+  /* Sidebar folds into a sticky top bar so the tables get the full width. */
+  .k-shell{display:block}
+  .k-side{position:sticky;top:0;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:10px 14px;border-right:0;border-bottom:1px solid var(--color-divider)}
+  .k-side nav{flex-direction:row;flex-wrap:wrap;gap:2px 4px}
+  .k-side a{border-left:0;border-bottom:2px solid transparent;padding:4px 8px}
+  .k-side a[aria-current="page"]{border-left-color:transparent;border-bottom-color:var(--color-accent)}
+  .k-side a.k-brand{flex-direction:row;align-items:baseline;gap:8px;padding:2px 4px}
+  .k-brand-sub{display:none}
+  .k-side a.k-nav-docs{margin-top:0;padding-top:4px;border-top:0}
+  .k-side-foot{margin-top:0;margin-left:auto;flex-direction:row;align-items:center;gap:12px;padding:0}
+  .k-theme-btn{width:auto}
+  .k-main{padding-bottom:40px}
+  .k-connlost{padding:5px 16px}
+}
+@media (max-width:820px){
+  .k-submit-grid{grid-template-columns:1fr;gap:20px}
+}
+@media (max-width:640px){
+  .k-page{padding:14px}
+  .k-page h1{font-size:22px !important} /* page headings carry an inline size */
+  .k-t{font-size:12px}
+  .k-t th,.k-t td{padding:6px}
+  .k-side{gap:4px 10px;padding:8px 10px}
+  /* filter controls are laid out at fixed pixel widths */
+  .k-page input.input,.k-page select.input,.k-page textarea.input{max-width:100%}
+}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <template id="app-template">
 
-<div style="min-height:100vh;font-family:var(--font-body);color:var(--color-text);display:flex;align-items:flex-start">
+<div class="k-shell">
 
-  <div class="k-side" style="position:sticky;top:0;flex:0 0 208px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column;gap:26px;padding:16px 14px;background:var(--color-bg);border-right:1px solid var(--color-divider);z-index:30">
-    <a href="/" style="display:flex;flex-direction:column;gap:3px;text-decoration:none;color:inherit;padding:2px 10px;border-left:2px solid transparent">
+  <div class="k-side">
+    <a class="k-brand" href="/">
       <span style="font-family:var(--font-heading);font-weight:600;font-size:20px;letter-spacing:.16em">KAIROS</span>
-      <span style="font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--k-muted)">scheduler ops</span>
+      <span class="k-brand-sub">scheduler ops</span>
     </a>
-    <nav style="display:flex;flex-direction:column;gap:2px;font-size:13px">
+    <nav>
       <a href="/" aria-current="{{ navOverview }}">Overview</a>
       <a href="/queues" aria-current="{{ navQueues }}">Queues</a>
       <a href="/jobs" aria-current="{{ navJobs }}">Jobs</a>
+      <a href="/attempts" aria-current="{{ navAttempts }}">Attempts</a>
       <a href="/schedules" aria-current="{{ navSchedules }}">Schedules</a>
       <a href="/handlers" aria-current="{{ navHandlers }}">Handlers</a>
       <a href="/workers" aria-current="{{ navWorkers }}">Workers</a>
       <a href="/submit" aria-current="{{ navSubmit }}">Submit</a>
-      <a href="/docs" aria-current="{{ navDocs }}" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--color-divider)">Docs</a>
+      <a class="k-nav-docs" href="/docs" aria-current="{{ navDocs }}">Docs</a>
     </nav>
-    <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;padding:0 10px 2px 12px">
-      <button class="btn btn-secondary" onClick="{{ onToggleTheme }}" style="justify-content:flex-start;padding:5px 8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;width:100%">{{ themeLabel }}</button>
-      <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--k-muted);letter-spacing:.02em">
+    <div class="k-side-foot">
+      <button class="btn btn-secondary k-theme-btn" onClick="{{ onToggleTheme }}">{{ themeLabel }}</button>
+      <div class="k-poll">
         <span style="{{ pollDotStyle }}"></span>
         <span>{{ pollLabel }}</span>
       </div>
     </div>
   </div>
 
-  <div style="flex:1;min-width:0;padding-bottom:60px">
+  <div class="k-main">
     <sc-if value="{{ connLost }}" hint-placeholder-val="{{ false }}">
-      <div style="position:sticky;top:0;z-index:20;background:var(--k-warn-bg);border-bottom:1px solid var(--k-warn-border);padding:5px 26px;font-size:11.5px;color:var(--k-warn-fg);letter-spacing:.02em">connection lost — polling failed, showing last good data ({{ lastUpdatedLabel }})</div>
+      <div class="k-connlost">connection lost — polling failed, showing last good data ({{ lastUpdatedLabel }})</div>
     </sc-if>
 
-  <div style="max-width:1480px;padding:26px">
+  <div class="k-page">
 
     <!-- ══ OVERVIEW ══ -->
     <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
@@ -92,17 +166,17 @@ a:hover{color:var(--color-accent-700)}
         <div style="display:flex;gap:34px;align-items:stretch;margin-bottom:30px;flex-wrap:wrap">
           <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">live workers</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">live workers</div>
             <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ liveWorkers }}</div>
           </div>
           <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">in flight</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">in flight</div>
             <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ totalInFlight }}</div>
           </div>
           <div class="blueprint k-click" onClick="{{ onGoQueues }}" style="padding:12px 22px 10px;min-width:150px;max-width:330px" title="Open Queues">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">queues</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">queues</div>
             <div style="display:flex;align-items:baseline;gap:9px">
               <span style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ queueCount }}</span>
               <span style="font-size:11px;color:var(--k-muted)">{{ backlogLabel }}</span>
@@ -111,7 +185,7 @@ a:hover{color:var(--color-accent-700)}
           </div>
           <div class="blueprint k-click" onClick="{{ onGoSchedules }}" style="padding:12px 22px 10px;min-width:150px" title="Open Schedules">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">schedules</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">schedules</div>
             <div style="display:flex;align-items:baseline;gap:9px">
               <span style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ schedCount }}</span>
               <span style="font-size:11px;color:var(--k-muted)">{{ schedNextLabel }}</span>
@@ -119,7 +193,7 @@ a:hover{color:var(--color-accent-700)}
           </div>
           <div class="blueprint k-click" onClick="{{ onGoDead }}" style="padding:12px 22px 10px;min-width:150px" title="Open dead jobs">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead jobs</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead jobs</div>
             <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums;{{ deadTileColor }}">{{ deadCount }}</div>
           </div>
         </div>
@@ -127,7 +201,7 @@ a:hover{color:var(--color-accent-700)}
         <sc-if value="{{ queuesError }}" hint-placeholder-val="{{ false }}">
           <div class="blueprint" style="padding:18px 20px;margin-bottom:24px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ queuesErrorCode }}</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ queuesErrorCode }}</div>
             <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ queuesError }}</div>
             <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
           </div>
@@ -143,7 +217,7 @@ a:hover{color:var(--color-accent-700)}
             </div>
             <div class="blueprint" style="padding:0;border-color:var(--k-crit-border)">
               <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-              <div style="padding:9px 14px;border-bottom:1px solid var(--k-crit-border);background:var(--k-crit-bg);font-size:11.5px;color:var(--k-crit-fg2);line-height:1.5">These recurring jobs will not fire again on their own. A schedule stops at <span class="k-mono">dead</span> when one occurrence burns through max_retries, and at <span class="k-mono">expired</span> when its window closes — neither re-arms without you.</div>
+              <div style="padding:9px 14px;border-bottom:1px solid var(--k-crit-border);background:var(--k-crit-bg);font-size:11.5px;color:var(--k-crit-fg2);line-height:1.5">These recurring jobs will not fire again on their own. A schedule stops at <span class="k-mono">dead</span> when one occurrence burns through max_retries, and it does not re-arm without a rerun.</div>
               <sc-for list="{{ stalledRows }}" as="st" hint-placeholder-count="2">
                 <div class="k-click" onClick="{{ st.onOpen }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid color-mix(in srgb,var(--k-ink) 7%,transparent)">
                   <span style="{{ st.tagStyle }}">{{ st.tag }}</span>
@@ -172,8 +246,9 @@ a:hover{color:var(--color-accent-700)}
               </div>
             </sc-if>
             <sc-if value="{{ hasDead }}" hint-placeholder-val="{{ true }}">
-              <div class="blueprint" style="padding:0;overflow-x:auto">
+              <div class="blueprint" style="padding:0">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div class="k-scroll">
                 <table class="k-t">
                   <thead><tr><th>job</th><th>handler</th><th class="k-num">retries</th><th class="k-num">died</th></tr></thead>
                   <tbody>
@@ -187,6 +262,7 @@ a:hover{color:var(--color-accent-700)}
                     
                   </tbody>
                 </table>
+                </div>
               </div>
             </sc-if>
           </div>
@@ -212,7 +288,7 @@ a:hover{color:var(--color-accent-700)}
         <sc-if value="{{ queuesError }}" hint-placeholder-val="{{ false }}">
           <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ queuesErrorCode }}</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ queuesErrorCode }}</div>
             <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ queuesError }}</div>
             <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
           </div>
@@ -226,8 +302,9 @@ a:hover{color:var(--color-accent-700)}
         </sc-if>
 
         <sc-if value="{{ queuesReady }}" hint-placeholder-val="{{ true }}">
-          <div class="blueprint" style="padding:0;overflow-x:auto">
+          <div class="blueprint" style="padding:0">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="k-scroll">
             <table class="k-t">
               <thead><tr>
                 <th style="width:18%">queue</th>
@@ -238,7 +315,7 @@ a:hover{color:var(--color-accent-700)}
                 <th class="k-num">running</th>
                 <th class="k-num">awaiting_retry</th>
                 <th class="k-num">redis_buffered</th>
-                <th style="width:180px">oldest pending age</th>
+                <th class="k-num">dead</th>
               </tr></thead>
               <tbody>
                 
@@ -250,13 +327,10 @@ a:hover{color:var(--color-accent-700)}
                       </sc-if>
                     </td>
                     <td>
-                      <div style="display:flex;height:6px;margin-top:5px;background:color-mix(in srgb,var(--k-ink) 8%,transparent)">
-                        <div style="{{ row.barPending }}"></div>
-                        <div style="{{ row.barQueued }}"></div>
-                        <div style="{{ row.barRunning }}"></div>
-                        <div style="{{ row.barRetry }}"></div>
+                      <div style="display:flex;height:7px;margin-top:5px;background:color-mix(in srgb,var(--k-ink) 8%,transparent)">
+                        <div style="{{ row.depthBar }}"></div>
                       </div>
-                      <div style="font-size:10px;color:var(--k-muted);margin-top:4px;font-variant-numeric:tabular-nums">depth {{ row.depth }}</div>
+                      <div style="font-size:11px;color:var(--k-text2);margin-top:4px;font-variant-numeric:tabular-nums">depth {{ row.depth }}</div>
                     </td>
                     <td class="k-num" style="{{ row.workersStyle }}">{{ row.workerCount }}</td>
                     <td class="k-num">{{ row.pending }}</td>
@@ -264,11 +338,12 @@ a:hover{color:var(--color-accent-700)}
                     <td class="k-num">{{ row.running }}</td>
                     <td class="k-num" style="{{ row.retryStyle }}">{{ row.awaiting_retry }}</td>
                     <td class="k-num" style="color:var(--k-muted)">{{ row.redis_buffered }}</td>
-                    <td><span style="{{ row.ageStyle }}">{{ row.ageLabel }}</span></td>
+                    <td class="k-num" style="{{ row.qDeadStyle }}">{{ row.dead }}</td>
                   </tr>
                 
               </tbody>
             </table>
+            </div>
           </div>
         </sc-if>
       </div>
@@ -285,7 +360,7 @@ a:hover{color:var(--color-accent-700)}
         <div class="blueprint" style="padding:12px 14px;margin-bottom:20px;display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           <div>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">state · multi</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">state · multi</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <sc-for list="{{ stateChips }}" as="chip" hint-placeholder-count="7">
                 <button onClick="{{ chip.onToggle }}" aria-pressed="{{ chip.pressed }}" style="{{ chip.style }}">{{ chip.label }}</button>
@@ -293,7 +368,7 @@ a:hover{color:var(--color-accent-700)}
             </div>
           </div>
           <div>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">type</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">type</div>
             <div style="display:flex;gap:6px">
               <sc-for list="{{ typeChips }}" as="chip" hint-placeholder-count="3">
                 <button onClick="{{ chip.onPick }}" aria-pressed="{{ chip.pressed }}" style="{{ chip.style }}">{{ chip.label }}</button>
@@ -301,7 +376,7 @@ a:hover{color:var(--color-accent-700)}
             </div>
           </div>
           <div>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">queue · single</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">queue · single</div>
             <select class="input" style="width:170px;min-height:30px;font-size:13px" value="{{ queueValue }}" onChange="{{ onQueueChange }}">
               
                 <option sc-for="{{ queueOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
@@ -309,7 +384,7 @@ a:hover{color:var(--color-accent-700)}
             </select>
           </div>
           <div>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">handler · single</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">handler · single</div>
             <select class="input k-mono" style="width:180px;min-height:30px;font-size:12.5px" value="{{ handlerValue }}" onChange="{{ onHandlerChange }}">
               
                 <option sc-for="{{ handlerOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
@@ -317,10 +392,10 @@ a:hover{color:var(--color-accent-700)}
             </select>
           </div>
           <div>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">lookup · id, name or handler</div>
-            <div style="display:flex;gap:6px">
-              <input class="input k-mono" style="width:250px;min-height:30px;font-size:12.5px" placeholder="paste a job id, or type a name" value="{{ searchValue }}" onChange="{{ onSearchChange }}" onKeyDown="{{ onSearchKey }}">
-              <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" onClick="{{ onSearchSubmit }}">Find</button>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">lookup · id, name or handler</div>
+            <div style="display:flex;gap:8px">
+              <input class="input k-mono" style="width:250px;min-height:30px;font-size:12.5px" placeholder="paste a job id, or type a name" value="{{ searchValue }}" onInput="{{ onSearchChange }}" onKeyDown="{{ onSearchKey }}">
+              <span style="{{ searchHintStyle }}">{{ searchHint }}</span>
             </div>
           </div>
           <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" onClick="{{ onClearFilters }}">Clear filters</button>
@@ -339,7 +414,7 @@ a:hover{color:var(--color-accent-700)}
         <sc-if value="{{ jobsError }}" hint-placeholder-val="{{ false }}">
           <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ jobsErrorCode }}</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ jobsErrorCode }}</div>
             <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ jobsError }}</div>
             <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
           </div>
@@ -355,22 +430,24 @@ a:hover{color:var(--color-accent-700)}
 
         <sc-if value="{{ jobsReady }}" hint-placeholder-val="{{ false }}">
           <div>
-            <div class="blueprint" style="padding:0;overflow-x:auto">
+            <div class="blueprint" style="padding:0">
               <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div class="k-scroll">
               <table class="k-t">
                 <thead><tr>
                   <th style="width:26px"></th>
-                  <th style="width:130px;cursor:pointer" onClick="{{ onSortId }}">id{{ sortArrowId }}</th>
+                  <th style="width:1%;white-space:nowrap;cursor:pointer" onClick="{{ onSortId }}">id{{ sortArrowId }}</th>
                   <th style="cursor:pointer" onClick="{{ onSortName }}">name{{ sortArrowName }}</th>
                   <th style="cursor:pointer" onClick="{{ onSortQueue }}">queue{{ sortArrowQueue }}</th>
                   <th style="cursor:pointer" onClick="{{ onSortHandler }}">handler{{ sortArrowHandler }}</th>
-                  <th style="width:120px">state</th>
+                  <th style="width:1%;white-space:nowrap">type</th>
+                  <th style="width:1%;white-space:nowrap">state</th>
                   <th class="k-num" style="cursor:pointer" title="1 is highest, 10 lowest" onClick="{{ onSortPriority }}">prio{{ sortArrowPriority }}</th>
                   <th class="k-num" style="cursor:pointer" onClick="{{ onSortRetry }}">retry{{ sortArrowRetry }}</th>
                   <th class="k-num">deliv</th>
-                  <th class="k-num" style="width:96px">next run</th>
-                  <th class="k-num" style="cursor:pointer" onClick="{{ onSortCreated }}">created{{ sortArrowCreated }}</th>
-                  <th class="k-num" style="cursor:pointer" onClick="{{ onSortUpdated }}">updated{{ sortArrowUpdated }}</th>
+                  <th class="k-num" style="width:1%;white-space:nowrap">next run</th>
+                  <th class="k-num" style="width:1%;white-space:nowrap;cursor:pointer" onClick="{{ onSortCreated }}">created{{ sortArrowCreated }}</th>
+                  <th class="k-num" style="width:1%;white-space:nowrap;cursor:pointer" onClick="{{ onSortUpdated }}">updated{{ sortArrowUpdated }}</th>
                 </tr></thead>
                 <tbody sc-for="{{ jobRows }}" sc-as="row">
                   
@@ -386,18 +463,28 @@ a:hover{color:var(--color-accent-700)}
                       </td>
                       <td style="color:var(--k-text2)">{{ row.queue }}</td>
                       <td><a href="{{ row.handlerHref }}" class="k-mono" style="text-decoration:none">{{ row.handler }}</a></td>
+                      <td><span style="{{ row.typeStyle }}">{{ row.typeLabel }}</span></td>
                       <td><span style="{{ row.badgeStyle }}">{{ row.state }}</span></td>
                       <td class="k-num" style="{{ row.prioStyle }}" title="1 is highest, 10 lowest">{{ row.priority }}</td>
                       <td class="k-num" style="{{ row.retryStyle }}">{{ row.retry_count }}</td>
                       <td class="k-num" style="color:var(--k-muted)">{{ row.delivery_count }}</td>
-                      <td class="k-num" style="{{ row.nextRunStyle }}" title="{{ row.nextRunAbs }}"><span style="white-space:nowrap">{{ row.nextRun }}</span></td>
-                      <td class="k-num" style="color:var(--k-text2)" title="{{ row.createdAbs }}">{{ row.createdRel }}</td>
-                      <td class="k-num" style="color:var(--k-text2)" title="{{ row.updatedAbs }}">{{ row.updatedRel }}</td>
+                      <td class="k-num" style="{{ row.nextRunStyle }}" title="{{ row.nextRunAbs }}">
+                        <div style="white-space:nowrap">{{ row.nextRunDate }}</div>
+                        <div style="white-space:nowrap;color:var(--k-muted);font-size:12px">{{ row.nextRunClock }}</div>
+                      </td>
+                      <td class="k-num" style="color:var(--k-text2)" title="{{ row.createdAbs }}">
+                        <div style="white-space:nowrap">{{ row.createdDate }}</div>
+                        <div style="white-space:nowrap;color:var(--k-muted);font-size:12px">{{ row.createdClock }}</div>
+                      </td>
+                      <td class="k-num" style="color:var(--k-text2)" title="{{ row.updatedAbs }}">
+                        <div style="white-space:nowrap">{{ row.updatedDate }}</div>
+                        <div style="white-space:nowrap;color:var(--k-muted);font-size:12px">{{ row.updatedClock }}</div>
+                      </td>
                     </tr>
                     
                       <tr sc-if="{{ row.expanded }}">
-                        <td colspan="12" style="background:var(--color-surface);padding:10px 14px 14px 40px">
-                          <div style="font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">attempts for {{ row.idShort }} — click a row for full detail</div>
+                        <td colspan="13" style="background:var(--color-surface);padding:10px 14px 14px 40px">
+                          <div style="font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">attempts for {{ row.idShort }} — click a row for full detail</div>
                           <sc-if value="{{ row.attemptsLoading }}" hint-placeholder-val="{{ false }}">
                             <div style="font-size:11.5px;color:var(--k-muted)">loading attempts…</div>
                           </sc-if>
@@ -408,21 +495,24 @@ a:hover{color:var(--color-accent-700)}
                             <table class="k-t" style="background:transparent">
                               <thead><tr>
                                 <th class="k-num" style="width:34px">#</th>
-                                <th style="width:80px">worker</th>
-                                <th style="width:96px">outcome</th>
+                                <th style="width:1%;white-space:nowrap">worker</th>
+                                <th style="width:1%;white-space:nowrap">outcome</th>
                                 <th>error</th>
-                                <th class="k-num" style="width:80px">started</th>
-                                <th class="k-num" style="width:70px">duration</th>
+                                <th class="k-num" style="width:1%;white-space:nowrap">started</th>
+                                <th class="k-num" style="width:1%;white-space:nowrap">duration</th>
                               </tr></thead>
                               <tbody>
-                                
+
                                   <tr sc-for="{{ row.attemptsRows }}" sc-as="a" class="k-click" onClick="{{ a.onOpen }}" title="Open full job detail">
                                     <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
-                                    <td class="k-mono" style="white-space:nowrap" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
+                                    <td class="k-mono" style="{{ a.workerStyle }}" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
                                     <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
-                                    <td style="font-size:12px;color:var(--k-crit-fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">{{ a.error }}</td>
-                                    <td class="k-num" style="color:var(--k-text2)">{{ a.startedRel }}</td>
-                                    <td class="k-num">{{ a.duration }}</td>
+                                    <td style="font-size:12.5px;color:var(--k-crit-fg2)">{{ a.error }}</td>
+                                    <td class="k-num" style="color:var(--k-text2)" title="{{ a.startedAbs }}">
+                                      <div style="white-space:nowrap">{{ a.startedDate }}</div>
+                                      <div style="white-space:nowrap;color:var(--k-muted);font-size:12px">{{ a.startedClock }}</div>
+                                    </td>
+                                    <td class="k-num" style="white-space:nowrap">{{ a.duration }}</td>
                                   </tr>
                                 
                               </tbody>
@@ -435,12 +525,105 @@ a:hover{color:var(--color-accent-700)}
                   
                 </tbody>
               </table>
+              </div>
             </div>
             <div style="display:flex;align-items:center;gap:14px;margin-top:14px;font-size:12px;color:var(--k-text2)">
               <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" disabled="{{ prevDisabled }}" onClick="{{ onPrev }}">← Prev</button>
               <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" disabled="{{ nextDisabled }}" onClick="{{ onNext }}">Next →</button>
               <span class="k-mono" style="font-size:11.5px">{{ pageLabel }}</span>
               <span style="font-size:11px;color:var(--k-faint2)">offset pagination — rows can shift between pages under concurrent inserts</span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ══ ATTEMPTS ══ -->
+    <sc-if value="{{ isAttempts }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+          <h1 style="font-size:27px;margin:0">Attempts</h1>
+          <span class="k-mono" style="color:var(--k-muted);font-size:12px">GET {{ attemptsRequestPath }}</span>
+          <span style="font-size:12px;color:var(--k-text2);margin-left:auto;max-width:520px;line-height:1.5">Every execution attempt across all jobs, newest first. A <b>lost</b> attempt was dispatched but never claimed, so it has no worker.</span>
+        </div>
+
+        <div class="blueprint" style="padding:12px 14px;margin-bottom:18px;display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">outcome</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ outcomeChips }}" as="chip" hint-placeholder-count="6">
+                <button onClick="{{ chip.onPick }}" aria-pressed="{{ chip.pressed }}" style="{{ chip.style }}">{{ chip.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" onClick="{{ onClearAttemptFilters }}">Clear filters</button>
+          <div style="margin-left:auto;font-size:11.5px;color:var(--k-muted);text-align:right">{{ attemptsFilterSummary }}</div>
+        </div>
+
+        <sc-if value="{{ attemptsPageLoading }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:34px;text-align:center;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--k-muted)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            loading /jobs/attempts
+          </div>
+        </sc-if>
+        <sc-if value="{{ attemptsPageError }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ attemptsPageErrorCode }}</div>
+            <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ attemptsPageError }}</div>
+            <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ attemptsPageEmpty }}" hint-placeholder-val="{{ false }}">
+          <div class="blueprint" style="padding:36px;text-align:center">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:17px;font-family:var(--font-heading);font-weight:600">No attempts match</div>
+            <div style="font-size:12.5px;color:var(--k-muted);margin-top:6px">Filters active: {{ attemptsFilterSummary }}.</div>
+            <div style="margin-top:14px"><button class="btn btn-secondary" onClick="{{ onClearAttemptFilters }}">Clear filters</button></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ attemptsPageReady }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div class="blueprint" style="padding:0">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div class="k-scroll">
+              <table class="k-t">
+                <thead><tr>
+                  <th class="k-num" style="width:1%;white-space:nowrap">started</th>
+                  <th>job</th>
+                  <th>handler</th>
+                  <th style="width:1%;white-space:nowrap">queue</th>
+                  <th style="width:1%;white-space:nowrap">worker</th>
+                  <th style="width:1%;white-space:nowrap">outcome</th>
+                  <th class="k-num" style="width:1%;white-space:nowrap">duration</th>
+                  <th>error</th>
+                </tr></thead>
+                <tbody>
+
+                    <tr sc-for="{{ attemptPageRows }}" sc-as="a" class="k-click" onClick="{{ a.onOpen }}" tabIndex="{{ 0 }}" onKeyDown="{{ a.onKey }}" title="Open the job this attempt belongs to">
+                      <td class="k-num k-mono" style="color:var(--k-text2)" title="{{ a.startedAbs }}">
+                        <div style="white-space:nowrap">{{ a.startedDate }}</div>
+                        <div style="white-space:nowrap;color:var(--k-muted)">{{ a.startedClock }}</div>
+                      </td>
+                      <td style="font-family:var(--font-heading);font-weight:600;font-size:14px;white-space:nowrap">{{ a.job_name }}</td>
+                      <td style="white-space:nowrap"><a href="{{ a.handlerHref }}" class="k-mono" style="text-decoration:none">{{ a.handler }}</a></td>
+                      <td style="color:var(--k-text2);white-space:nowrap">{{ a.queue }}</td>
+                      <td class="k-mono" style="{{ a.workerStyle }}" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
+                      <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
+                      <td class="k-num" style="white-space:nowrap">{{ a.duration }}</td>
+                      <td><div style="{{ a.errorStyle }}">{{ a.error }}</div></td>
+                    </tr>
+
+                </tbody>
+              </table>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;margin-top:14px;font-size:12px;color:var(--k-text2)">
+              <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" disabled="{{ prevDisabled }}" onClick="{{ onPrev }}">← Prev</button>
+              <button class="btn btn-secondary" style="min-height:30px;padding:4px 12px" disabled="{{ nextDisabled }}" onClick="{{ onNext }}">Next →</button>
+              <span class="k-mono" style="font-size:11.5px">{{ pageLabel }}</span>
             </div>
           </div>
         </sc-if>
@@ -461,7 +644,7 @@ a:hover{color:var(--color-accent-700)}
         <sc-if value="{{ detailError }}" hint-placeholder-val="{{ false }}">
           <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ detailErrorCode }}</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ detailErrorCode }}</div>
             <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ detailError }}</div>
             <a class="btn btn-secondary" href="/jobs">Back to jobs</a>
           </div>
@@ -476,17 +659,24 @@ a:hover{color:var(--color-accent-700)}
                   <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
                     <span style="{{ jobBadgeStyle }}">{{ job.state }}</span>
                     <h1 style="font-size:26px;margin:0">{{ job.name }}</h1>
+                    <span style="{{ jobTypeStyle }}" title="job_type={{ jobTypeRaw }}">{{ jobTypeLabel }}</span>
                     <span style="font-size:12.5px;color:var(--k-muted)">{{ job.queue }}</span>
                   </div>
-                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:12px 20px;max-width:760px">
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">handler</div><div style="font-size:14px"><a class="k-mono" href="{{ jobHandlerHref }}" style="text-decoration:none">{{ job.handler }}</a></div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">priority</div><div style="font-size:14px" title="1 is highest, 10 lowest">{{ job.priority }} <span style="color:var(--k-faint2);font-size:11px">of 10</span></div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">retry_count</div><div style="font-size:14px">{{ job.retry_count }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">delivery_count</div><div style="font-size:14px">{{ job.delivery_count }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">next_check_at</div><div style="font-size:14px" title="{{ nextCheckAbs }}">{{ nextCheckLabel }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last_run_at</div><div style="font-size:14px" title="{{ lastRunAbs }}">{{ lastRunLabel }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">created_at</div><div style="font-size:14px" title="{{ createdAbs }}">{{ createdRel }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">updated_at</div><div style="font-size:14px" title="{{ updatedAbs }}">{{ updatedRel }}</div></div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px 20px;max-width:840px">
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">handler</div><div style="font-size:14px"><a class="k-mono" href="{{ jobHandlerHref }}" style="text-decoration:none">{{ job.handler }}</a></div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">priority</div><div style="font-size:14px" title="1 is highest, 10 lowest">{{ job.priority }} <span style="color:var(--k-faint2);font-size:11px">of 10</span></div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">retry_count</div><div style="font-size:14px">{{ job.retry_count }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">delivery_count</div><div style="font-size:14px">{{ job.delivery_count }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">next_check_at</div><div style="font-size:14px" title="{{ nextCheckAbs }}">{{ nextCheckLabel }}</div></div>
+                    <sc-if value="{{ jobIsCron }}" hint-placeholder-val="{{ true }}">
+                      <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">next_run_at</div><div style="font-size:14px" title="{{ jobNextRunAbs }}">{{ jobNextRunLabel }}</div></div>
+                    </sc-if>
+                    <sc-if value="{{ jobIsCron }}" hint-placeholder-val="{{ true }}">
+                      <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">cron</div><div style="font-size:14px" class="k-mono" title="{{ jobCronHuman }}">{{ jobCronExpr }}</div></div>
+                    </sc-if>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last run</div><div style="font-size:14px" title="{{ lastRunAbs }}">{{ lastRunLabel }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">created_at</div><div style="font-size:14px" title="{{ createdAbs }}">{{ createdRel }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">updated_at</div><div style="font-size:14px" title="{{ updatedAbs }}">{{ updatedRel }}</div></div>
                   </div>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px;min-width:250px">
@@ -503,7 +693,7 @@ a:hover{color:var(--color-accent-700)}
                   </div>
                   <sc-if value="{{ actionError }}" hint-placeholder-val="{{ false }}">
                     <div style="background:var(--k-crit-bg);border:1px solid var(--k-crit-border);padding:8px 10px;max-width:280px">
-                      <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg)">{{ actionErrorCode }}</div>
+                      <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg)">{{ actionErrorCode }}</div>
                       <div style="font-size:12.5px;color:var(--k-crit-fg2);line-height:1.45">{{ actionError }}</div>
                       <button class="btn btn-ghost" style="font-size:11px;padding:2px 0;margin-top:2px" onClick="{{ onDismissActionError }}">dismiss</button>
                     </div>
@@ -550,7 +740,7 @@ a:hover{color:var(--color-accent-700)}
                     </div>
                   </div>
                   <div style="flex:0 0 300px;min-width:250px">
-                    <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:7px">after applying, fires at</div>
+                    <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:7px">after applying, fires at</div>
                     <sc-if value="{{ schedPreviewEmpty }}" hint-placeholder-val="{{ false }}">
                       <div style="font-size:12px;color:var(--k-crit-fg);line-height:1.5">Nothing fires inside this window — the API rejects it with 422.</div>
                     </sc-if>
@@ -564,7 +754,7 @@ a:hover{color:var(--color-accent-700)}
                     </div>
                     <sc-if value="{{ schedShowsReplace }}" hint-placeholder-val="{{ false }}">
                       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--color-divider)">
-                        <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:5px">replaces</div>
+                        <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:5px">replaces</div>
                         <div class="k-mono" style="font-size:12px;color:var(--k-warn-fg);white-space:nowrap">{{ jobCronExpr }}</div>
                         <div style="font-size:11.5px;color:var(--k-muted);line-height:1.5;margin-top:3px">Attempt history and run count are kept. The pending occurrence is re-armed to the new time.</div>
                       </div>
@@ -595,14 +785,14 @@ a:hover{color:var(--color-accent-700)}
                   <div style="background:var(--k-crit-bg);border:1px solid var(--k-crit-border);padding:8px 11px;margin-bottom:12px;font-size:12.5px;color:var(--k-crit-fg2)">{{ jobStalledNote }}</div>
                 </sc-if>
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px 20px">
-                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">starts_at</div><div style="font-size:13.5px" title="{{ jobStartsAbs }}">{{ jobStartsLabel }}</div></div>
-                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">ends_at</div><div style="font-size:13.5px" title="{{ jobEndsAbs }}">{{ jobEndsLabel }}</div></div>
-                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last run</div><div style="font-size:13.5px" title="{{ lastRunAbs }}">{{ lastRunLabel }}</div></div>
-                  <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">runs recorded</div><div style="font-size:13.5px">{{ jobRunCount }}</div></div>
+                  <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">starts_at</div><div style="font-size:13.5px" title="{{ jobStartsAbs }}">{{ jobStartsLabel }}</div></div>
+                  <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">ends_at</div><div style="font-size:13.5px" title="{{ jobEndsAbs }}">{{ jobEndsLabel }}</div></div>
+                  <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last run</div><div style="font-size:13.5px" title="{{ lastRunAbs }}">{{ lastRunLabel }}</div></div>
+                  <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">runs recorded</div><div style="font-size:13.5px">{{ jobRunCount }}</div></div>
                 </div>
                 <sc-if value="{{ jobHasUpcoming }}" hint-placeholder-val="{{ false }}">
                   <div style="margin-top:12px">
-                    <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:5px">next fires</div>
+                    <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:5px">next fires</div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap">
                       <sc-for list="{{ jobUpcoming }}" as="u" hint-placeholder-count="3">
                         <span class="k-mono" style="font-size:11.5px;padding:3px 9px;background:var(--color-surface);border:1px solid var(--color-divider);white-space:nowrap">{{ u.abs }} <span style="color:var(--k-muted)">· in {{ u.rel }}</span></span>
@@ -612,8 +802,14 @@ a:hover{color:var(--color-accent-700)}
                 </sc-if>
               </div>
             </sc-if>
-            <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
-              <div class="blueprint" style="padding:12px 14px;flex:0 0 320px;min-width:280px">
+            <div style="display:flex;gap:2px;border-bottom:1px solid var(--color-divider);margin-bottom:18px">
+              <button style="{{ jobTabOverviewStyle }}" onClick="{{ onJobTabOverview }}">Overview</button>
+              <button style="{{ jobTabAttemptsStyle }}" onClick="{{ onJobTabAttempts }}">{{ jobTabAttemptsLabel }}</button>
+              <button style="{{ jobTabLogsStyle }}" onClick="{{ onJobTabLogs }}">Logs</button>
+            </div>
+
+            <sc-if value="{{ isJobTabOverview }}" hint-placeholder-val="{{ true }}">
+              <div class="blueprint" style="padding:12px 14px;max-width:640px">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
                   <button class="btn btn-ghost" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:2px 0" onClick="{{ onTogglePayload }}">{{ payloadToggleLabel }}</button>
@@ -621,28 +817,68 @@ a:hover{color:var(--color-accent-700)}
                   <button class="btn btn-secondary" style="font-size:11px;min-height:26px;padding:2px 9px" onClick="{{ onCopyPayload }}">{{ copyLabel }}</button>
                 </div>
                 <sc-if value="{{ payloadOpen }}" hint-placeholder-val="{{ true }}">
-                  <pre class="k-mono" style="margin:0;background:var(--color-surface);border:1px solid var(--color-divider);padding:10px;overflow:auto;max-height:340px;font-size:12px;line-height:1.5">{{ payloadJson }}</pre>
+                  <pre class="k-mono" style="margin:0;background:var(--color-surface);border:1px solid var(--color-divider);padding:10px;overflow:auto;max-height:340px;font-size:12.5px;line-height:1.5">{{ payloadJson }}</pre>
                 </sc-if>
               </div>
+            </sc-if>
 
-              <div style="flex:1 1 620px;min-width:620px">
-                <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+            <sc-if value="{{ isJobTabLogs }}" hint-placeholder-val="{{ false }}">
+              <div>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
                   <h2 style="font-size:19px;margin:0">Logs</h2>
-                  <span style="font-size:11px;color:var(--k-muted)">lifecycle + attempt history for this job, oldest first</span>
+                  <span style="font-size:11.5px;color:var(--k-muted)">handler output recorded for one attempt</span>
+                  <sc-if value="{{ hasAttemptsForLogs }}" hint-placeholder-val="{{ true }}">
+                    <select class="input k-mono" style="margin-left:auto;min-width:300px;min-height:30px;font-size:12.5px" value="{{ logAttemptId }}" onChange="{{ onLogAttemptChange }}">
+                      <option sc-for="{{ logAttemptOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
+                    </select>
+                  </sc-if>
                 </div>
-                <div class="blueprint k-mono" style="padding:10px 12px;margin-bottom:22px;background:var(--k-ink);color:var(--k-neutral-bg);font-size:12px;line-height:1.7;max-height:220px;overflow:auto">
-                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                  <sc-for list="{{ jobLogRows }}" as="lg" hint-placeholder-count="6">
-                    <div><span style="color:var(--color-accent-2)">{{ lg.t }}</span> {{ lg.line }}</div>
-                  </sc-for>
-                </div>
-                <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+                <sc-if value="{{ attemptsEmpty }}" hint-placeholder-val="{{ false }}">
+                  <div class="blueprint" style="padding:24px;text-align:center;color:var(--k-muted);font-size:12.5px">
+                    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    No attempts yet — the job has not been delivered to a worker.
+                  </div>
+                </sc-if>
+                <sc-if value="{{ logsLoading }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:12px;color:var(--k-muted);padding:10px 0">loading logs…</div>
+                </sc-if>
+                <sc-if value="{{ logsError }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:12.5px;color:var(--k-crit-fg);padding:10px 0">Could not load logs for this attempt.</div>
+                </sc-if>
+                <sc-if value="{{ logsReady }}" hint-placeholder-val="{{ true }}">
+                  <div class="blueprint k-mono" style="padding:12px 14px;background:var(--k-ink);color:var(--k-neutral-bg);font-size:12.5px;line-height:1.75;max-height:520px;overflow-y:auto;overflow-x:hidden">
+                    <sc-for list="{{ logRows }}" as="lg" hint-placeholder-count="6">
+                      <div style="display:flex;gap:12px;align-items:baseline">
+                        <span style="color:var(--color-accent-2);white-space:nowrap">{{ lg.t }}</span>
+                        <span style="{{ lg.levelStyle }}">{{ lg.level }}</span>
+                        <span style="white-space:pre-wrap;word-break:break-word">{{ lg.line }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ logsFellBack }}" hint-placeholder-val="{{ false }}">
+                  <div>
+                    <div style="font-size:11.5px;color:var(--k-muted);margin-bottom:6px">This attempt recorded no log lines — the handler never wrote any. Showing its lifecycle instead.</div>
+                    <div class="blueprint k-mono" style="padding:12px 14px;background:var(--k-ink);color:var(--k-neutral-bg);font-size:12.5px;line-height:1.75;max-height:520px;overflow-y:auto;overflow-x:hidden">
+                      <sc-for list="{{ lifecycleRows }}" as="lg" hint-placeholder-count="2">
+                        <div style="display:flex;gap:12px;align-items:baseline">
+                          <span style="color:var(--color-accent-2);white-space:nowrap">{{ lg.t }}</span>
+                          <span style="white-space:pre-wrap;word-break:break-word">{{ lg.line }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ isJobTabAttempts }}" hint-placeholder-val="{{ false }}">
+              <div>
+                <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:10px;flex-wrap:wrap">
                   <h2 style="font-size:19px;margin:0">Attempts</h2>
-                  <span style="font-size:11px;color:var(--k-muted)">{{ attemptsCount }} · ordered by attempt_no asc</span>
-                  <select class="input" style="margin-left:auto;width:150px;min-height:28px;font-size:12.5px" value="{{ attemptsFilter }}" onChange="{{ onAttemptsFilterChange }}">
-                    
-                      <option sc-for="{{ attemptsFilterOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
-                    
+                  <span style="font-size:11.5px;color:var(--k-muted)">{{ attemptsCount }} · ordered by attempt_no asc</span>
+                  <select class="input" style="margin-left:auto;width:160px;min-height:30px;font-size:12.5px" value="{{ attemptsFilter }}" onChange="{{ onAttemptsFilterChange }}">
+                    <option sc-for="{{ attemptsFilterOptions }}" sc-as="opt" value="{{ opt.value }}">{{ opt.label }}</option>
                   </select>
                 </div>
                 <sc-if value="{{ attemptsEmpty }}" hint-placeholder-val="{{ false }}">
@@ -652,43 +888,49 @@ a:hover{color:var(--color-accent-700)}
                   </div>
                 </sc-if>
                 <sc-if value="{{ attemptsReady }}" hint-placeholder-val="{{ false }}">
-                  <div class="blueprint" style="padding:0;overflow-x:auto">
+                  <div class="blueprint" style="padding:0">
                     <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                    <div style="max-height:520px;overflow:auto">
-                      <table class="k-t">
-                        <thead><tr>
-                          <th class="k-num" style="width:34px">#</th>
-                          <th style="width:80px;white-space:nowrap">worker</th>
-                          <th style="width:96px">outcome</th>
-                          <th style="min-width:280px">error</th>
-                          <th class="k-num" style="width:80px">started</th>
-                          <th class="k-num" style="width:80px">finished</th>
-                          <th class="k-num" style="width:74px">duration</th>
-                        </tr></thead>
-                        <tbody>
-                          
-                            <tr sc-for="{{ attemptRows }}" sc-as="a">
-                              <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
-                              <td class="k-mono" style="white-space:nowrap" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
-                              <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
-                              <td style="min-width:280px">
-                                <div style="{{ a.errorStyle }}">{{ a.error }}</div>
-                                <sc-if value="{{ a.canExpand }}" hint-placeholder-val="{{ false }}">
-                                  <button class="btn btn-ghost" style="font-size:10.5px;padding:0;letter-spacing:.06em" onClick="{{ a.onToggle }}">{{ a.toggleLabel }}</button>
-                                </sc-if>
-                              </td>
-                              <td class="k-num" style="color:var(--k-text2)" title="{{ a.startedAbs }}">{{ a.startedRel }}</td>
-                              <td class="k-num" style="color:var(--k-text2)" title="{{ a.finishedAbs }}">{{ a.finishedRel }}</td>
-                              <td class="k-num">{{ a.duration }}</td>
-                            </tr>
-                          
-                        </tbody>
-                      </table>
+                    <div class="k-scroll">
+                    <table class="k-t">
+                      <thead><tr>
+                        <th class="k-num" style="width:1%">#</th>
+                        <th style="width:1%;white-space:nowrap">worker</th>
+                        <th style="width:1%;white-space:nowrap">outcome</th>
+                        <th>error</th>
+                        <th class="k-num" style="width:1%;white-space:nowrap">started</th>
+                        <th class="k-num" style="width:1%;white-space:nowrap">finished</th>
+                        <th class="k-num" style="width:1%;white-space:nowrap">duration</th>
+                      </tr></thead>
+                      <tbody>
+
+                          <tr sc-for="{{ attemptRows }}" sc-as="a">
+                            <td class="k-num" style="color:var(--k-muted)">{{ a.attempt_no }}</td>
+                            <td class="k-mono" style="{{ a.workerStyle }}" title="{{ a.workerIdRaw }}">{{ a.worker_id }}</td>
+                            <td><span style="{{ a.outcomeStyle }}">{{ a.outcome }}</span></td>
+                            <td>
+                              <div style="{{ a.errorStyle }}">{{ a.error }}</div>
+                              <sc-if value="{{ a.canExpand }}" hint-placeholder-val="{{ false }}">
+                                <button class="btn btn-ghost" style="font-size:11px;padding:0;letter-spacing:.06em" onClick="{{ a.onToggle }}">{{ a.toggleLabel }}</button>
+                              </sc-if>
+                            </td>
+                            <td class="k-num" style="color:var(--k-text2)" title="{{ a.startedAbs }}">
+                              <div style="white-space:nowrap">{{ a.startedDate }}</div>
+                              <div style="white-space:nowrap;color:var(--k-muted);font-size:12px">{{ a.startedClock }}</div>
+                            </td>
+                            <td class="k-num" style="color:var(--k-text2)" title="{{ a.finishedAbs }}">
+                              <div style="white-space:nowrap">{{ a.finishedDate }}</div>
+                              <div style="white-space:nowrap;color:var(--k-muted);font-size:12px">{{ a.finishedClock }}</div>
+                            </td>
+                            <td class="k-num" style="white-space:nowrap">{{ a.duration }}</td>
+                          </tr>
+
+                      </tbody>
+                    </table>
                     </div>
                   </div>
                 </sc-if>
               </div>
-            </div>
+            </sc-if>
           </div>
         </sc-if>
       </div>
@@ -717,8 +959,9 @@ a:hover{color:var(--color-accent-700)}
           </div>
         </sc-if>
         <sc-if value="{{ schedReady }}" hint-placeholder-val="{{ false }}">
-          <div class="blueprint" style="padding:0;overflow-x:auto">
+          <div class="blueprint" style="padding:0">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="k-scroll">
             <table class="k-t">
               <thead><tr>
                 <th>schedule</th>
@@ -754,6 +997,7 @@ a:hover{color:var(--color-accent-700)}
                 
               </tbody>
             </table>
+            </div>
           </div>
         </sc-if>
       </div>
@@ -810,18 +1054,24 @@ a:hover{color:var(--color-accent-700)}
                     <a href="{{ handlerJobsHref }}" style="font-size:11.5px;text-decoration:none;margin-left:auto">open in Jobs →</a>
                   </div>
                   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px 20px;max-width:900px">
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">jobs</div><div style="font-size:14px">{{ hd.total }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">success rate</div><div style="font-size:14px">{{ hd.successRate }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">avg run</div><div style="font-size:14px">{{ hd.avgRun }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead</div><div style="font-size:14px">{{ hd.dead }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last activity</div><div style="font-size:14px" title="{{ hd.lastAbs }}">{{ hd.lastRel }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">queues</div><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><sc-for list="{{ hd.queues }}" as="q" hint-placeholder-count="2"><span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span></sc-for></div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">jobs</div><div style="font-size:14px">{{ hd.total }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">success rate</div><div style="font-size:14px">{{ hd.successRate }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">avg run</div><div style="font-size:14px">{{ hd.avgRun }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">dead</div><div style="font-size:14px">{{ hd.dead }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">last activity</div><div style="font-size:14px" title="{{ hd.lastAbs }}">{{ hd.lastRel }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">queues</div><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><sc-for list="{{ hd.queues }}" as="q" hint-placeholder-count="2"><span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span></sc-for></div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">served by</div>
+                      <sc-if value="{{ hd.workersEmpty }}" hint-placeholder-val="{{ false }}">
+                        <div style="font-size:14px;color:var(--k-crit-fg)">no live worker</div>
+                      </sc-if>
+                      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><sc-for list="{{ hd.workers }}" as="wk" hint-placeholder-count="1"><span class="tag" style="font-size:10.5px;padding:2px 8px">{{ wk }}</span></sc-for></div>
+                    </div>
                   </div>
-                  <div style="margin-top:12px;font-size:11px;color:var(--k-muted);max-width:660px;line-height:1.5">Handler is a plain <span class="k-mono">text</span> column on <span class="k-mono">jobs</span> with a not-empty constraint — there is no handler registry table. Everything below is aggregated over job rows and their attempts.</div>
+                  <div style="margin-top:12px;font-size:11px;color:var(--k-muted);max-width:660px;line-height:1.5">Handler is a plain <span class="k-mono">text</span> column on <span class="k-mono">jobs</span> with a not-empty constraint — there is no handler registry table. The counts below are aggregated over job rows and their attempts; <span class="k-mono">served by</span> is separate, read from the live worker registry in Redis, so a handler can be registered with no jobs or have jobs with nothing left to run them.</div>
                 </div>
 
                 <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
-                  <div class="blueprint" style="padding:0;flex:0 0 300px;min-width:260px;overflow-x:auto">
+                  <div class="blueprint" style="padding:0;flex:0 0 300px;min-width:0">
                     <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
                     <table class="k-t">
                       <thead><tr><th>state</th><th class="k-num" style="width:70px">jobs</th><th class="k-num" style="width:64px">share</th></tr></thead>
@@ -841,9 +1091,10 @@ a:hover{color:var(--color-accent-700)}
                       <h2 style="font-size:19px;margin:0">Recent jobs</h2>
                       <span style="font-size:11px;color:var(--k-muted)">{{ hd.recentCount }} · newest first</span>
                     </div>
-                    <div class="blueprint" style="padding:0;overflow-x:auto">
+                    <div class="blueprint" style="padding:0">
                       <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
                       <div style="max-height:520px;overflow:auto">
+                        <div class="k-scroll">
                         <table class="k-t">
                           <thead><tr>
                             <th style="width:120px">id</th>
@@ -866,6 +1117,7 @@ a:hover{color:var(--color-accent-700)}
                             
                           </tbody>
                         </table>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -879,27 +1131,32 @@ a:hover{color:var(--color-accent-700)}
           <div>
             <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:16px">
               <h1 style="font-size:27px;margin:0">Handlers</h1>
-              <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">GET /handlers · derived from jobs.handler</span>
+              <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">GET /handlers · counts from jobs.handler · presence from the worker registry</span>
             </div>
 
             <div style="display:flex;gap:34px;align-items:stretch;margin-bottom:26px;flex-wrap:wrap">
               <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">handlers seen</div>
+                <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">handlers seen</div>
                 <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ handlerCount }}</div>
               </div>
               <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">with dead jobs</div>
+                <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">with dead jobs</div>
                 <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ handlersFailing }}</div>
               </div>
               <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">jobs in flight</div>
+                <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">jobs in flight</div>
                 <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ handlersRunning }}</div>
               </div>
+              <div class="blueprint" style="padding:12px 22px 10px;min-width:150px">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">stranded</div>
+                <div style="font-family:var(--font-heading);font-weight:600;font-size:38px;line-height:1.1;font-variant-numeric:tabular-nums">{{ handlersStranded }}</div>
+              </div>
               <div style="flex:1;min-width:240px;display:flex;align-items:flex-end;padding-bottom:4px">
-                <p style="margin:0;font-size:11.5px;line-height:1.5;color:var(--k-muted);max-width:400px">Success rate counts terminal jobs only (success vs dead), so a handler with everything still in flight reads as —. Sort by dead to find the code that keeps exhausting retries.</p>
+                <p style="margin:0;font-size:11.5px;line-height:1.5;color:var(--k-muted);max-width:400px">Success rate counts terminal jobs only (success vs dead), so a handler with everything still in flight reads as —. Sort by dead to find the code that keeps exhausting retries. Stranded means work is waiting on a handler no running worker has registered, so it cannot drain until one does.</p>
               </div>
             </div>
 
@@ -912,7 +1169,7 @@ a:hover{color:var(--color-accent-700)}
             <sc-if value="{{ handlersError }}" hint-placeholder-val="{{ false }}">
               <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ handlersErrorCode }}</div>
+                <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ handlersErrorCode }}</div>
                 <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ handlersError }}</div>
                 <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
               </div>
@@ -925,20 +1182,21 @@ a:hover{color:var(--color-accent-700)}
               </div>
             </sc-if>
             <sc-if value="{{ handlersReady }}" hint-placeholder-val="{{ false }}">
-              <div class="blueprint" style="padding:0;overflow-x:auto">
+              <div class="blueprint" style="padding:0">
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div class="k-scroll">
                 <table class="k-t">
                   <thead><tr>
-                    <th style="width:170px;cursor:pointer" onClick="{{ onHSortHandler }}">handler{{ hArrowHandler }}</th>
-                    <th style="min-width:190px">queues</th>
-                    <th class="k-num" style="width:52px;cursor:pointer" onClick="{{ onHSortTotal }}">jobs{{ hArrowTotal }}</th>
-                    <th class="k-num" style="width:56px">backlog</th>
-                    <th class="k-num" style="width:56px;cursor:pointer" onClick="{{ onHSortRunning }}">running{{ hArrowRunning }}</th>
-                    <th class="k-num" style="width:56px">retrying</th>
-                    <th class="k-num" style="width:48px;cursor:pointer" onClick="{{ onHSortDead }}">dead{{ hArrowDead }}</th>
-                    <th class="k-num" style="width:76px;cursor:pointer" onClick="{{ onHSortRate }}">success{{ hArrowRate }}</th>
-                    <th class="k-num" style="width:70px;cursor:pointer" onClick="{{ onHSortAvg }}">avg run{{ hArrowAvg }}</th>
-                    <th class="k-num" style="width:74px">last activity</th>
+                    <th style="cursor:pointer" onClick="{{ onHSortHandler }}">handler{{ hArrowHandler }}</th>
+                    <th style="width:1%;white-space:nowrap">queues</th>
+                    <th class="k-num" style="width:1%;cursor:pointer" onClick="{{ onHSortTotal }}">jobs{{ hArrowTotal }}</th>
+                    <th class="k-num" style="width:1%">backlog</th>
+                    <th class="k-num" style="width:1%;cursor:pointer" onClick="{{ onHSortRunning }}">running{{ hArrowRunning }}</th>
+                    <th class="k-num" style="width:1%">retrying</th>
+                    <th class="k-num" style="width:1%;cursor:pointer" onClick="{{ onHSortDead }}">dead{{ hArrowDead }}</th>
+                    <th class="k-num" style="width:1%;cursor:pointer" onClick="{{ onHSortRate }}">success{{ hArrowRate }}</th>
+                    <th class="k-num" style="width:1%;cursor:pointer" onClick="{{ onHSortAvg }}">avg run{{ hArrowAvg }}</th>
+                    <th class="k-num" style="width:1%;white-space:nowrap">last activity</th>
                   </tr></thead>
                   <tbody>
                     
@@ -951,11 +1209,11 @@ a:hover{color:var(--color-accent-700)}
                         </td>
                         <td>
                           <div style="display:flex;gap:5px;align-items:center;white-space:nowrap">
-                            <sc-for list="{{ h.queuesShown }}" as="q" hint-placeholder-count="2">
-                              <span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span>
+                            <sc-for list="{{ h.queuesShown }}" as="q" hint-placeholder-count="3">
+                              <span class="tag tag-accent" style="font-size:11px;padding:2px 8px">{{ q }}</span>
                             </sc-for>
                             <sc-if value="{{ h.queuesMore }}" hint-placeholder-val="{{ false }}">
-                              <span style="font-size:10.5px;color:var(--k-muted)" title="{{ h.queuesAll }}">{{ h.queuesMore }}</span>
+                              <span class="tag" style="font-size:11px;padding:2px 8px;color:var(--k-muted)" title="{{ h.queuesAll }}">{{ h.queuesMore }}</span>
                             </sc-if>
                           </div>
                         </td>
@@ -966,11 +1224,15 @@ a:hover{color:var(--color-accent-700)}
                         <td class="k-num" style="{{ h.deadStyle }}">{{ h.dead }}</td>
                         <td class="k-num"><span style="{{ h.rateStyle }}">{{ h.successRate }}</span></td>
                         <td class="k-num" style="color:var(--k-text2)">{{ h.avgRun }}</td>
-                        <td class="k-num" style="color:var(--k-text2)" title="{{ h.lastAbs }}">{{ h.lastRel }}</td>
+                        <td class="k-num" style="color:var(--k-text2)" title="{{ h.lastAbs }}">
+                          <div style="white-space:nowrap">{{ h.lastDate }}</div>
+                          <div style="white-space:nowrap;color:var(--k-muted);font-size:12px">{{ h.lastClock }}</div>
+                        </td>
                       </tr>
                     
                   </tbody>
                 </table>
+                </div>
               </div>
             </sc-if>
           </div>
@@ -1000,10 +1262,10 @@ a:hover{color:var(--color-accent-700)}
                     <span class="k-mono" style="font-size:12.5px;color:var(--k-muted)">{{ workerDetailId }}</span>
                   </div>
                   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px 20px;max-width:820px">
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">subscribed queues</div><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><sc-for list="{{ workerQueueTags }}" as="q" hint-placeholder-count="2"><span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span></sc-for></div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">in_flight</div><div style="font-size:14px">{{ workerInFlight }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">heartbeat · last_seen</div><div style="font-size:14px" title="{{ workerLastSeenAbs }}">{{ workerLastSeenRel }}</div></div>
-                    <div><div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">started_at · uptime</div><div style="font-size:14px" title="{{ workerStartedAbs }}">{{ workerUptime }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">subscribed queues</div><div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:3px"><sc-for list="{{ workerQueueTags }}" as="q" hint-placeholder-count="2"><span class="tag tag-accent" style="font-size:10.5px;padding:2px 8px">{{ q }}</span></sc-for></div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">in_flight</div><div style="font-size:14px">{{ workerInFlight }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">heartbeat · last_seen</div><div style="font-size:14px" title="{{ workerLastSeenAbs }}">{{ workerLastSeenRel }}</div></div>
+                    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted)">started_at · uptime</div><div style="font-size:14px" title="{{ workerStartedAbs }}">{{ workerUptime }}</div></div>
                   </div>
                   <div style="margin-top:12px;font-size:11px;color:var(--k-muted);max-width:640px;line-height:1.5">The <span class="k-mono">/workers</span> registry contract only carries live state (queues, in_flight, last_seen, started_at) — no downtime history or log stream. Status and recent activity below are derived client-side from live data and job attempts, not a separate endpoint.</div>
                 </div>
@@ -1018,8 +1280,9 @@ a:hover{color:var(--color-accent-700)}
                   </div>
                 </sc-if>
                 <sc-if value="{{ workerRunningReady }}" hint-placeholder-val="{{ false }}">
-                  <div class="blueprint" style="padding:0;margin-bottom:22px;overflow-x:auto">
+                  <div class="blueprint" style="padding:0;margin-bottom:22px">
                     <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                    <div class="k-scroll">
                     <table class="k-t">
                       <thead><tr>
                         <th style="width:120px">id</th>
@@ -1040,6 +1303,7 @@ a:hover{color:var(--color-accent-700)}
                         
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </sc-if>
                 <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
@@ -1053,9 +1317,10 @@ a:hover{color:var(--color-accent-700)}
                   </div>
                 </sc-if>
                 <sc-if value="{{ workerActivityReady }}" hint-placeholder-val="{{ false }}">
-                  <div class="blueprint" style="padding:0;overflow-x:auto">
+                  <div class="blueprint" style="padding:0">
                     <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
                     <div style="max-height:480px;overflow:auto">
+                      <div class="k-scroll">
                       <table class="k-t">
                         <thead><tr>
                           <th>job</th>
@@ -1076,6 +1341,7 @@ a:hover{color:var(--color-accent-700)}
                           
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   </div>
                 </sc-if>
@@ -1098,7 +1364,7 @@ a:hover{color:var(--color-accent-700)}
         <sc-if value="{{ workersError }}" hint-placeholder-val="{{ false }}">
           <div class="blueprint" style="padding:18px 20px;background:var(--k-crit-bg);border-color:var(--k-crit-border)">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ workersErrorCode }}</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg);margin-bottom:4px">error · {{ workersErrorCode }}</div>
             <div style="font-size:13.5px;color:var(--k-crit-fg2);margin-bottom:10px">{{ workersError }}</div>
             <button class="btn btn-secondary" onClick="{{ onRetry }}">Retry</button>
           </div>
@@ -1111,14 +1377,15 @@ a:hover{color:var(--color-accent-700)}
           </div>
         </sc-if>
         <sc-if value="{{ workersReady }}" hint-placeholder-val="{{ false }}">
-          <div class="blueprint" style="padding:0;overflow-x:auto">
+          <div class="blueprint" style="padding:0">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="k-scroll">
             <table class="k-t">
               <thead><tr>
                 <th style="width:150px">name</th>
                 <th style="width:110px">id</th>
                 <th>queues</th>
-                <th style="min-width:230px">executing now</th>
+                <th>executing now</th>
                 <th class="k-num" style="width:90px">in_flight</th>
                 <th class="k-num" style="width:120px">last_seen</th>
                 <th class="k-num" style="width:120px">uptime</th>
@@ -1154,7 +1421,7 @@ a:hover{color:var(--color-accent-700)}
                   
                     <tr sc-if="{{ w.expanded }}">
                       <td colspan="7" style="background:var(--color-surface);padding:8px 14px 12px 14px">
-                        <div style="font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">in flight on {{ w.name }} — click a job to open it</div>
+                        <div style="font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">in flight on {{ w.name }} — click a job to open it</div>
                         <table class="k-t" style="background:transparent">
                           <thead><tr>
                             <th style="width:118px">id</th>
@@ -1181,6 +1448,7 @@ a:hover{color:var(--color-accent-700)}
                 
               </tbody>
             </table>
+            </div>
           </div>
         </sc-if>
         </div>
@@ -1195,7 +1463,7 @@ a:hover{color:var(--color-accent-700)}
           <h1 style="font-size:27px;margin:0">Submit job</h1>
           <span class="k-mono" style="color:var(--k-muted);font-size:11.5px">POST /jobs</span>
         </div>
-        <div style="display:grid;grid-template-columns:minmax(320px,440px) minmax(280px,1fr);gap:30px;align-items:start;max-width:1080px">
+        <div class="k-submit-grid">
           <div class="blueprint" style="padding:16px 18px">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
             <div style="display:flex;flex-direction:column;gap:13px">
@@ -1256,13 +1524,13 @@ a:hover{color:var(--color-accent-700)}
               </div>
               <sc-if value="{{ submitError }}" hint-placeholder-val="{{ false }}">
                 <div style="background:var(--k-crit-bg);border:1px solid var(--k-crit-border);padding:9px 11px">
-                  <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg)">{{ submitErrorCode }}</div>
+                  <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-crit-fg)">{{ submitErrorCode }}</div>
                   <div style="font-size:12.5px;color:var(--k-crit-fg2)">{{ submitError }}</div>
                 </div>
               </sc-if>
               <sc-if value="{{ createdId }}" hint-placeholder-val="{{ false }}">
                 <div style="background:var(--k-ok-bg);border:1px solid var(--k-ok-border);padding:10px 12px">
-                  <div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-ok-fg)">201 created · state pending</div>
+                  <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-ok-fg)">201 created · state pending</div>
                   <a href="{{ createdHref }}" class="k-mono" style="font-size:12.5px">{{ createdId }} →</a>
                 </div>
               </sc-if>
@@ -1270,11 +1538,11 @@ a:hover{color:var(--color-accent-700)}
           </div>
           <div class="blueprint" style="padding:14px 16px">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:8px">request preview</div>
+            <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:8px">request preview</div>
             <pre class="k-mono" style="margin:0;background:var(--color-surface);border:1px solid var(--color-divider);padding:11px;overflow:auto;font-size:12px;line-height:1.55">{{ requestPreview }}</pre>
             <sc-if value="{{ formIsCron }}" hint-placeholder-val="{{ false }}">
               <div style="margin-top:14px">
-                <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">first runs</div>
+                <div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--k-muted);margin-bottom:6px">first runs</div>
                 <sc-if value="{{ previewEmpty }}" hint-placeholder-val="{{ false }}">
                   <div style="font-size:12px;color:var(--k-crit-fg)">This expression never fires inside the window — the API rejects it with 422.</div>
                 </sc-if>
@@ -1295,7 +1563,7 @@ a:hover{color:var(--color-accent-700)}
     </sc-if>
 
     <div style="margin-top:34px;padding-top:12px;border-top:1px solid var(--color-divider);display:flex;gap:20px;flex-wrap:wrap;font-size:10.5px;color:var(--k-faint2);letter-spacing:.04em">
-      <span>keys: <b style="color:var(--k-text2)">g o</b> overview · <b style="color:var(--k-text2)">g q</b> queues · <b style="color:var(--k-text2)">g j</b> jobs · <b style="color:var(--k-text2)">g c</b> schedules · <b style="color:var(--k-text2)">g d</b> docs · <b style="color:var(--k-text2)">g h</b> handlers · <b style="color:var(--k-text2)">g w</b> workers · <b style="color:var(--k-text2)">g s</b> submit · <b style="color:var(--k-text2)">j / k</b> page · <b style="color:var(--k-text2)">r</b> refresh</span>
+      <span>keys: <b style="color:var(--k-text2)">g o</b> overview · <b style="color:var(--k-text2)">g q</b> queues · <b style="color:var(--k-text2)">g j</b> jobs · <b style="color:var(--k-text2)">g a</b> attempts · <b style="color:var(--k-text2)">g c</b> schedules · <b style="color:var(--k-text2)">g d</b> docs · <b style="color:var(--k-text2)">g h</b> handlers · <b style="color:var(--k-text2)">g w</b> workers · <b style="color:var(--k-text2)">g s</b> submit · <b style="color:var(--k-text2)">j / k</b> page · <b style="color:var(--k-text2)">r</b> refresh</span>
       <span style="margin-left:auto">poll 3s · shared interval · paused when tab hidden</span>
     </div>
   </div>

@@ -314,6 +314,27 @@ func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
 	}
 }
 
+type JobLogResponse struct {
+	Seq       int32     `json:"seq"`
+	Level     string    `json:"level"`
+	Line      string    `json:"line"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func NewJobLogResponse(l db.GetAttemptLogsRow) JobLogResponse {
+	return JobLogResponse{
+		Seq:       l.Seq,
+		Level:     string(l.Level),
+		Line:      l.Line,
+		CreatedAt: utc(l.CreatedAt),
+	}
+}
+
+type JobLogListResponse struct {
+	Logs    []JobLogResponse `json:"logs"`
+	NextSeq *int32           `json:"next_seq"`
+}
+
 type PaginationResponse struct {
 	Limit   int32 `json:"limit"`
 	Offset  int32 `json:"offset"`
@@ -328,6 +349,33 @@ type JobListResponse struct {
 type JobAttemptListResponse struct {
 	Attempts   []JobAttemptResponse `json:"attempts"`
 	Pagination PaginationResponse   `json:"pagination"`
+}
+
+type AttemptListResponse struct {
+	Attempts   []dashboard.AttemptStat `json:"attempts"`
+	Pagination PaginationResponse      `json:"pagination"`
+}
+
+func parseAttemptFilter(r *http.Request) (dashboard.AttemptFilter, map[string]string) {
+	q := r.URL.Query()
+	fields := map[string]string{}
+	f := dashboard.AttemptFilter{
+		Handler: q.Get("handler"),
+		Queue:   q.Get("queue"),
+	}
+
+	if raw := q.Get("outcome"); raw != "" {
+		if !db.AttemptOutcome(raw).Valid() {
+			fields["outcome"] = fmt.Sprintf("unknown outcome %q", raw)
+		} else {
+			f.Outcome = raw
+		}
+	}
+
+	if len(fields) == 0 {
+		return f, nil
+	}
+	return f, fields
 }
 
 type Pagination struct {

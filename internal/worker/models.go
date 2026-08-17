@@ -25,6 +25,7 @@ type RegistryEntry struct {
 	Name      string        `json:"name"`
 	ID        uuid.UUID     `json:"id"`
 	Queues    []string      `json:"queues"`
+	Handlers  []string      `json:"handlers"`
 	InFlight  []InflightJob `json:"in_flight"`
 	StartedAt time.Time     `json:"started_at"`
 	LastSeen  time.Time     `json:"last_seen"`

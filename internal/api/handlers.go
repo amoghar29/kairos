@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
@@ -313,6 +315,90 @@ func (app *Application) ListJobAttempts(w http.ResponseWriter, r *http.Request) 
 	attempts, pagination := splitPage(attempts, page)
 	app.writeJSON(w, r, http.StatusOK, JobAttemptListResponse{
 		Attempts:   mapSlice(attempts, NewJobAttemptResponse),
+		Pagination: pagination,
+	})
+}
+
+func (app *Application) ListAttemptLogs(w http.ResponseWriter, r *http.Request) {
+	jobID, err := jobIDFromURL(r)
+	if err != nil {
+		app.badRequest(w, r, "id must be a valid UUID")
+		return
+	}
+
+	var attemptID pgtype.UUID
+	if err := attemptID.Scan(chi.URLParam(r, "attemptID")); err != nil {
+		app.badRequest(w, r, "attemptID must be a valid UUID")
+		return
+	}
+
+	page, fields := parsePagination(r)
+	if fields != nil {
+		app.failedValidation(w, r, fields)
+		return
+	}
+
+	afterSeq := int32(0)
+	if raw := r.URL.Query().Get("after_seq"); raw != "" {
+		v, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || v < 0 {
+			app.failedValidation(w, r, map[string]string{"after_seq": "must be a non-negative integer"})
+			return
+		}
+		afterSeq = int32(v)
+	}
+
+	attempt, err := app.JobRepository.GetAttempt(r.Context(), attemptID, jobID)
+	if err != nil {
+		if errors.Is(err, job.ErrNotFound) {
+			app.notFound(w, r)
+		} else {
+			app.serverError(w, r, err)
+		}
+		return
+	}
+
+	toTS := attempt.FinishedAt
+	if !toTS.Valid {
+		toTS = pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
+	}
+
+	logs, err := app.JobRepository.GetJobAttemptLogs(r.Context(), attemptID, attempt.StartedAt, toTS, afterSeq, page.Limit)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	res := JobLogListResponse{Logs: mapSlice(logs, NewJobLogResponse)}
+	if n := len(res.Logs); n > 0 {
+		res.NextSeq = &res.Logs[n-1].Seq
+	}
+	app.writeJSON(w, r, http.StatusOK, res)
+}
+
+func (app *Application) ListAttempts(w http.ResponseWriter, r *http.Request) {
+	filter, fields := parseAttemptFilter(r)
+	page, pageFields := parsePagination(r)
+	for k, v := range pageFields {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields[k] = v
+	}
+	if fields != nil {
+		app.failedValidation(w, r, fields)
+		return
+	}
+
+	attempts, err := app.DashboardRepository.Attempts(r.Context(), filter, page.fetchLimit(), page.Offset)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	attempts, pagination := splitPage(attempts, page)
+	app.writeJSON(w, r, http.StatusOK, AttemptListResponse{
+		Attempts:   attempts,
 		Pagination: pagination,
 	})
 }

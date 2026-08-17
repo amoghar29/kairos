@@ -47,6 +47,8 @@ type HandlerStat struct {
 	Total          int64       `json:"total"`
 	Counts         StateCounts `json:"counts"`
 	Queues         []string    `json:"queues"`
+	Workers        []string    `json:"workers"`
+	Registered     bool        `json:"registered"`
 	SuccessRate    *float64    `json:"success_rate"`
 	AvgRunMs       *float64    `json:"avg_run_ms"`
 	LastActivityAt *time.Time  `json:"last_activity_at"`
@@ -119,11 +121,17 @@ func (r *Repository) HandlerStat(ctx context.Context, name string) (*HandlerStat
 	return &stats[0], nil
 }
 
+// Counts come from job rows; presence comes from the live worker registry. The two answer
+// different questions — history versus what a running process can execute right now — and a
+// handler can appear in either without the other.
 func (r *Repository) handlerStats(ctx context.Context, name pgtype.Text) ([]HandlerStat, error) {
 	rows, err := r.q.HandlerStats(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("handler stats: %w", err)
 	}
+
+	live := r.liveHandlers(ctx)
+	seen := make(map[string]struct{}, len(rows))
 
 	out := make([]HandlerStat, 0, len(rows))
 	for _, row := range rows {
@@ -141,8 +149,14 @@ func (r *Repository) handlerStats(ctx context.Context, name pgtype.Text) ([]Hand
 				Cancelled:     row.Cancelled,
 				Expired:       row.Expired,
 			},
-			Queues: row.Queues,
+			Queues:     row.Queues,
+			Workers:    live[row.Handler],
+			Registered: len(live[row.Handler]) > 0,
 		}
+		if stat.Workers == nil {
+			stat.Workers = []string{}
+		}
+		seen[row.Handler] = struct{}{}
 		if row.LastActivityAt.Valid {
 			t := row.LastActivityAt.Time.UTC()
 			stat.LastActivityAt = &t
@@ -156,7 +170,56 @@ func (r *Repository) handlerStats(ctx context.Context, name pgtype.Text) ([]Hand
 		}
 		out = append(out, stat)
 	}
+
+	// A registered handler with no job rows is invisible to the query — a fresh deploy, or
+	// one nothing has ever been enqueued for. Those are exactly the ones worth seeing.
+	for handler, workers := range live {
+		if _, ok := seen[handler]; ok {
+			continue
+		}
+		if name.Valid && handler != name.String {
+			continue
+		}
+		out = append(out, HandlerStat{
+			Handler:    handler,
+			Queues:     []string{},
+			Workers:    workers,
+			Registered: true,
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Handler < out[j].Handler })
 	return out, nil
+}
+
+
+func (r *Repository) liveHandlers(ctx context.Context) map[string][]string {
+	entries, err := r.Workers(ctx)
+	if err != nil {
+
+		return nil
+	}
+
+	byHandler := make(map[string]map[string]struct{})
+	for _, entry := range entries {
+		for _, handler := range entry.Handlers {
+			if byHandler[handler] == nil {
+				byHandler[handler] = make(map[string]struct{})
+			}
+			byHandler[handler][entry.Name] = struct{}{}
+		}
+	}
+
+	out := make(map[string][]string, len(byHandler))
+	for handler, names := range byHandler {
+		workers := make([]string, 0, len(names))
+		for n := range names {
+			workers = append(workers, n)
+		}
+		sort.Strings(workers)
+		out[handler] = workers
+	}
+	return out
 }
 
 func (r *Repository) RecentJobsByHandler(ctx context.Context, handler string, limit int32) ([]db.Job, error) {
@@ -168,6 +231,67 @@ func (r *Repository) RecentJobsByHandler(ctx context.Context, handler string, li
 		return nil, fmt.Errorf("recent jobs for handler %s: %w", handler, err)
 	}
 	return jobs, nil
+}
+
+type AttemptFilter struct {
+	Outcome string
+	Handler string
+	Queue   string
+}
+
+type AttemptStat struct {
+	ID         string     `json:"id"`
+	JobID      string     `json:"job_id"`
+	JobName    string     `json:"job_name"`
+	Queue      string     `json:"queue"`
+	Handler    string     `json:"handler"`
+	WorkerID   *string    `json:"worker_id"`
+	Outcome    string     `json:"outcome"`
+	Result     *string    `json:"result"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+}
+
+func (r *Repository) Attempts(ctx context.Context, f AttemptFilter, limit, offset int32) ([]AttemptStat, error) {
+	arg := db.RecentAttemptsParams{
+		Handler:    pgtype.Text{String: f.Handler, Valid: f.Handler != ""},
+		Queue:      pgtype.Text{String: f.Queue, Valid: f.Queue != ""},
+		PageLimit:  limit,
+		PageOffset: offset,
+	}
+	if f.Outcome != "" {
+		arg.Outcome = db.NullAttemptOutcome{AttemptOutcome: db.AttemptOutcome(f.Outcome), Valid: true}
+	}
+
+	rows, err := r.q.RecentAttempts(ctx, arg)
+	if err != nil {
+		return nil, fmt.Errorf("recent attempts: %w", err)
+	}
+
+	out := make([]AttemptStat, 0, len(rows))
+	for _, row := range rows {
+		stat := AttemptStat{
+			ID:        row.ID.String(),
+			JobID:     row.JobID.String(),
+			JobName:   row.JobName,
+			Queue:     row.Queue,
+			Handler:   row.Handler,
+			Outcome:   string(row.Outcome),
+			StartedAt: row.StartedAt.Time.UTC(),
+		}
+		if row.WorkerID.Valid {
+			stat.WorkerID = &row.WorkerID.String
+		}
+		if row.Result.Valid {
+			stat.Result = &row.Result.String
+		}
+		if row.FinishedAt.Valid {
+			t := row.FinishedAt.Time.UTC()
+			stat.FinishedAt = &t
+		}
+		out = append(out, stat)
+	}
+	return out, nil
 }
 
 func (r *Repository) Workers(ctx context.Context) ([]worker.RegistryEntry, error) {

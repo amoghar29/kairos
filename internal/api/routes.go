@@ -33,6 +33,7 @@ func (app *Application) Routes() http.Handler {
 			r.Route("/jobs", func(r chi.Router) {
 				r.Post("/", app.CreateJob)
 				r.Get("/", app.ListJobs)
+				r.Get("/attempts", app.ListAttempts)
 
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", app.GetJob)
@@ -42,7 +43,10 @@ func (app *Application) Routes() http.Handler {
 					r.Post("/pause", app.PauseJob)
 					r.Post("/schedule", app.RescheduleJob)
 					r.Post("/reschedule", app.RescheduleJob)
-					r.Get("/attempts", app.ListJobAttempts)
+					r.Route("/attempts", func(r chi.Router) {
+						r.Get("/", app.ListJobAttempts)
+						r.Get("/{attemptID}/logs", app.ListAttemptLogs)
+					})
 				})
 			})
 		})

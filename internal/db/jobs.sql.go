@@ -384,6 +384,31 @@ func (q *Queries) GetDueJobs(ctx context.Context, arg GetDueJobsParams) ([]GetDu
 	return items, nil
 }
 
+const getJobAttempt = `-- name: GetJobAttempt :one
+SELECT id, job_id, worker_id, outcome, result, started_at, finished_at FROM job_attempts
+WHERE id = $1 AND job_id = $2
+`
+
+type GetJobAttemptParams struct {
+	ID    pgtype.UUID `json:"id"`
+	JobID pgtype.UUID `json:"job_id"`
+}
+
+func (q *Queries) GetJobAttempt(ctx context.Context, arg GetJobAttemptParams) (JobAttempt, error) {
+	row := q.db.QueryRow(ctx, getJobAttempt, arg.ID, arg.JobID)
+	var i JobAttempt
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.WorkerID,
+		&i.Outcome,
+		&i.Result,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const getJobAttemptsByJobId = `-- name: GetJobAttemptsByJobId :many
 SELECT id, job_id, worker_id, outcome, result, started_at, finished_at FROM job_attempts
 WHERE job_id = $1

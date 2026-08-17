@@ -159,6 +159,84 @@ func (q *Queries) QueueStats(ctx context.Context) ([]QueueStatsRow, error) {
 	return items, nil
 }
 
+const recentAttempts = `-- name: RecentAttempts :many
+SELECT a.id,
+       a.job_id,
+       j.name AS job_name,
+       j.queue,
+       j.handler,
+       a.worker_id,
+       a.outcome,
+       a.result,
+       a.started_at,
+       a.finished_at
+FROM job_attempts a
+JOIN jobs j ON j.id = a.job_id
+WHERE ($1::attempt_outcome IS NULL OR a.outcome = $1::attempt_outcome)
+  AND ($2::text IS NULL OR j.handler = $2::text)
+  AND ($3::text IS NULL OR j.queue = $3::text)
+ORDER BY a.started_at DESC, a.id DESC
+LIMIT $5 OFFSET $4
+`
+
+type RecentAttemptsParams struct {
+	Outcome    NullAttemptOutcome `json:"outcome"`
+	Handler    pgtype.Text        `json:"handler"`
+	Queue      pgtype.Text        `json:"queue"`
+	PageOffset int32              `json:"page_offset"`
+	PageLimit  int32              `json:"page_limit"`
+}
+
+type RecentAttemptsRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	JobID      pgtype.UUID        `json:"job_id"`
+	JobName    string             `json:"job_name"`
+	Queue      string             `json:"queue"`
+	Handler    string             `json:"handler"`
+	WorkerID   pgtype.Text        `json:"worker_id"`
+	Outcome    AttemptOutcome     `json:"outcome"`
+	Result     pgtype.Text        `json:"result"`
+	StartedAt  pgtype.Timestamptz `json:"started_at"`
+	FinishedAt pgtype.Timestamptz `json:"finished_at"`
+}
+
+func (q *Queries) RecentAttempts(ctx context.Context, arg RecentAttemptsParams) ([]RecentAttemptsRow, error) {
+	rows, err := q.db.Query(ctx, recentAttempts,
+		arg.Outcome,
+		arg.Handler,
+		arg.Queue,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecentAttemptsRow
+	for rows.Next() {
+		var i RecentAttemptsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.JobName,
+			&i.Queue,
+			&i.Handler,
+			&i.WorkerID,
+			&i.Outcome,
+			&i.Result,
+			&i.StartedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recentJobsByHandler = `-- name: RecentJobsByHandler :many
 SELECT id, name, queue, state, payload, handler, priority, retry_count, max_retries, delivery_count, version, next_check_at, idempotency_key, job_type, cron_expr, starts_at, ends_at, next_run_at, created_at, updated_at FROM jobs
 WHERE handler = $1

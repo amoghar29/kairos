@@ -245,6 +245,10 @@ WHERE job_id = $1
 ORDER BY started_at ASC, id ASC
 LIMIT $2 OFFSET $3;
 
+-- name: GetJobAttempt :one
+SELECT * FROM job_attempts
+WHERE id = @id AND job_id = @job_id;
+
 -- name: UpdateJobAttemptExecutionCompletion :execrows
 UPDATE job_attempts
 SET outcome = @outcome,

@@ -155,6 +155,17 @@ func (r *Repository) ListAttempts(ctx context.Context, jobID pgtype.UUID, limit,
 	return attempts, nil
 }
 
+func (r *Repository) GetAttempt(ctx context.Context, attemptID, jobID pgtype.UUID) (db.JobAttempt, error) {
+	attempt, err := r.q.GetJobAttempt(ctx, db.GetJobAttemptParams{ID: attemptID, JobID: jobID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.JobAttempt{}, ErrNotFound
+		}
+		return db.JobAttempt{}, fmt.Errorf("get attempt %s: %w", attemptID, err)
+	}
+	return attempt, nil
+}
+
 func (r *Repository) GetJobsReadyToRun(ctx context.Context, maxFetchPerQueue int, agingRate float64) ([]db.GetDueJobsRow, error) {
 	jobs, err := r.q.GetDueJobs(ctx, db.GetDueJobsParams{
 		MaxFetchPerQueue: int32(maxFetchPerQueue),

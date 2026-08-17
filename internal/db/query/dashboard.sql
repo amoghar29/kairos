@@ -53,3 +53,22 @@ SELECT * FROM jobs
 WHERE handler = @handler
 ORDER BY updated_at DESC
 LIMIT @page_limit;
+
+-- name: RecentAttempts :many
+SELECT a.id,
+       a.job_id,
+       j.name AS job_name,
+       j.queue,
+       j.handler,
+       a.worker_id,
+       a.outcome,
+       a.result,
+       a.started_at,
+       a.finished_at
+FROM job_attempts a
+JOIN jobs j ON j.id = a.job_id
+WHERE (sqlc.narg(outcome)::attempt_outcome IS NULL OR a.outcome = sqlc.narg(outcome)::attempt_outcome)
+  AND (sqlc.narg(handler)::text IS NULL OR j.handler = sqlc.narg(handler)::text)
+  AND (sqlc.narg(queue)::text IS NULL OR j.queue = sqlc.narg(queue)::text)
+ORDER BY a.started_at DESC, a.id DESC
+LIMIT @page_limit OFFSET @page_offset;

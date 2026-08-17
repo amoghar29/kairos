@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"runtime/debug"
+	"sort"
 	"sync"
 	"time"
 
@@ -111,10 +112,17 @@ func (w *WorkerService) publishRegistry(ctx context.Context) error {
 	}
 
 	w.mu.RUnlock()
+	handlers := make([]string, 0, len(w.handlers))
+	for h := range w.handlers {
+		handlers = append(handlers, h)
+	}
+	sort.Strings(handlers)
+
 	payload, err := json.Marshal((RegistryEntry{
 		Name:      w.name,
 		ID:        w.id,
 		Queues:    w.queues,
+		Handlers:  handlers,
 		InFlight:  jobs,
 		StartedAt: w.startedAt,
 		LastSeen:  time.Now().UTC(),
