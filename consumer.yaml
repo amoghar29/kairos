@@ -2,7 +2,10 @@ poll_interval: 5 #in seconds
 queue_limit: 10
 max_delivery_count: 3
 aging_rate: -2.1
-claim_deadline: 60 # in seconds; how long a queued job may go unclaimed before it is requeued
+claim_deadline: 6000 # in seconds; how long a queued job may go unclaimed before it is requeued
 queues:
-  - name: testing1
-  - name: high_priority
+  - name: express
+  - name: standard
+  - name: bulk
+  - name: heavy
+  - name: glacial
