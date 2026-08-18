@@ -1,14 +1,8 @@
 'use strict';
-// Minimal template runtime replacing the dc-runtime (React + ReactDOM + Babel from unpkg).
-// It implements only the subset the dashboard template actually uses: {{ path }} bindings,
-// <sc-if>, <sc-for>, and a setState/render loop. Every one of the template's 554 distinct
-// expressions is a bare literal or a dotted path, so there is no expression evaluator here
-// and nothing is eval'd.
 
 (function () {
   const LITERALS = { 'true': true, 'false': false, 'null': null, 'undefined': undefined };
 
-  // `false`, `12`, `'x'` or a dotted path walked against the scope chain.
   function resolve(expr, scope) {
     const key = expr.trim();
     if (key in LITERALS) return LITERALS[key];
@@ -26,8 +20,6 @@
 
   const BINDING = /\{\{([^}]*)\}\}/g;
 
-  // A binding alone in the string keeps its type (needed for handlers, objects, booleans);
-  // mixed text interpolates to a string.
   function evaluate(text, scope) {
     const whole = /^\s*\{\{([^}]*)\}\}\s*$/.exec(text);
     if (whole) return resolve(whole[1], scope);
@@ -37,11 +29,8 @@
     });
   }
 
-  // Keyed by the *lowercased* attribute name: the HTML parser lowercases every attribute
-  // inside <template>, so the template's onClick / tabIndex reach us as onclick / tabindex.
   const EVENTS = { onclick: 'click', onchange: 'change', oninput: 'input', onkeydown: 'keydown',
                    onkeyup: 'keyup', onsubmit: 'submit', onfocus: 'focus', onblur: 'blur' };
-  // Must be assigned as DOM properties, not attributes, or the live control ignores them.
   const PROPS = { value: 'value', checked: 'checked', disabled: 'disabled', tabindex: 'tabIndex', selected: 'selected' };
 
   function applyStyle(el, v) {
@@ -58,8 +47,8 @@
   const CONTROL_ATTRS = { 'sc-if': true, 'sc-for': true, 'sc-as': true };
 
   function setAttr(el, name, value) {
-    if (name.startsWith('hint-')) return;             // design-tool hints, not runtime data
-    if (CONTROL_ATTRS[name]) return;                  // consumed by expand()
+    if (name.startsWith('hint-')) return;
+    if (CONTROL_ATTRS[name]) return;
     const lower = name.toLowerCase();
     if (EVENTS[lower]) {
       const type = EVENTS[lower];
@@ -87,18 +76,15 @@
     else el.setAttribute(name, value === true ? '' : String(value));
   }
 
-  // Expand a template node into real DOM under `out`, resolving control flow against `scope`.
-  // `controlDone` is set when re-entering for one iteration of an sc-for attribute, so the
-  // element renders itself instead of looping again.
   function expand(node, scope, out, controlDone) {
-    if (node.nodeType === 3) {                                    // text
+    if (node.nodeType === 3) {
       const raw = node.nodeValue;
       if (raw.indexOf('{{') === -1) { out.appendChild(document.createTextNode(raw)); return; }
       const v = evaluate(raw, scope);
       out.appendChild(document.createTextNode(v === null || v === undefined ? '' : String(v)));
       return;
     }
-    if (node.nodeType !== 1) return;                              // drop comments
+    if (node.nodeType !== 1) return;
 
     const tag = node.tagName.toLowerCase();
 
@@ -112,7 +98,7 @@
       const as = node.getAttribute('as') || 'item';
       if (!list || !list.length) return;
       for (let i = 0; i < list.length; i++) {
-        const child = Object.create(scope);                       // prototype chain = scope chain
+        const child = Object.create(scope);
         child[as] = list[i];
         child[as + 'Index'] = i;
         expandChildren(node, child, out);
@@ -120,9 +106,6 @@
       return;
     }
 
-    // Attribute form of the same two constructs. Required inside <table> and <select>: the
-    // HTML parser foster-parents an unknown *element* out of a table and drops it entirely
-    // inside a select, which silently unwraps the loop. An attribute always survives.
     if (!controlDone) {
       if (node.hasAttribute('sc-if') && !resolve(stripBraces(node.getAttribute('sc-if')), scope)) return;
 
@@ -162,12 +145,6 @@
     for (let i = 0; i < kids.length; i++) expand(kids[i], scope, out);
   }
 
-  // Patch `live` toward `next` in place. Reusing element nodes is what preserves focus,
-  // caret position and scroll across the 3s poll — a naive innerHTML swap would not.
-  // New nodes are *moved* out of the staged tree, never cloned: cloneNode drops the
-  // listeners expand() just attached, which would leave every fresh subtree — including
-  // the whole first render — inert. Both child lists are snapshotted because moving a
-  // node mutates them.
   function morph(live, next) {
     const a = Array.prototype.slice.call(live.childNodes);
     const b = Array.prototype.slice.call(next.childNodes);
@@ -198,7 +175,6 @@
     for (let i = la.length - 1; i >= 0; i--) {
       if (!next.hasAttribute(la[i].name)) live.removeAttribute(la[i].name);
     }
-    // Handlers and control state live off-attribute, so copy them across explicitly.
     const nh = next.__h;
     if (live.__h) {
       for (const type in live.__h) {
@@ -219,7 +195,7 @@
     if ('disabled' in next && live.disabled !== next.disabled) live.disabled = next.disabled;
   }
 
-  class DCLogic {
+  class KairosComponent {
     constructor(props, template, mount) {
       this.props = props || {};
       this.state = {};
@@ -231,12 +207,10 @@
     setState(patch) {
       Object.assign(this.state, typeof patch === 'function' ? patch(this.state) : patch);
       if (this._queued) return;
-      this._queued = true;                                        // coalesce bursts into one frame
+      this._queued = true;
       requestAnimationFrame(() => { this._queued = false; this.render(); });
     }
 
-    // The template resolves names against state first, then the instance, so both
-    // {{ someStateField }} and {{ someMethodOrGetter }} work as they did under dc-runtime.
     scope() {
       const self = this;
       return new Proxy({}, {
@@ -251,7 +225,7 @@
 
     render() {
       const next = document.createDocumentFragment();
-      const view = this.renderVals ? this.renderVals() : null;    // component's view-model hook
+      const view = this.renderVals ? this.renderVals() : null;
       const base = this.scope();
       const scope = view ? new Proxy({}, {
         has: () => true,
@@ -273,7 +247,7 @@
     }
   }
 
-  window.DCLogic = DCLogic;
+  window.KairosComponent = KairosComponent;
 
   window.__bootDashboard = function (props) {
     const template = document.getElementById('app-template').content;

@@ -1,4 +1,4 @@
-class Component extends DCLogic {
+class Component extends KairosComponent {
   STATES = ['pending', 'queued', 'running', 'awaiting_retry', 'paused', 'success', 'dead', 'cancelled', 'expired'];
   CRON_PRESETS = [
     { expr: '*/5 * * * *', label: 'every 5 minutes' },
@@ -78,9 +78,6 @@ class Component extends DCLogic {
   }
   workerName(id) { const w = (this.state.workers || []).filter(x => x.id === id)[0]; return w ? w.name : id; }
 
-  // Live worker activity is whatever the registry reports in flight right now. Finished
-  // attempts are not derivable client-side without an attempts fetch per job, so the pane
-  // shows current work only.
   workerActivity(workerId) {
     const w = (this.state.workers || []).filter(x => x.id === workerId)[0];
     if (!w || !w.in_flight_jobs) return [];
@@ -89,9 +86,6 @@ class Component extends DCLogic {
       outcome: 'in_progress', started_at: j.started_at, finished_at: null
     })).sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
   }
-  // Two sources: counts are aggregated over job rows and their attempts, while `registered`
-  // and `workers` come from the live worker registry in Redis. A handler can have one
-  // without the other — history with no live worker, or a fresh deploy with no jobs yet.
   state = {
     url: typeof location !== 'undefined' ? (location.pathname + location.search) : '/',
     tick: 0,
@@ -114,19 +108,18 @@ class Component extends DCLogic {
     logAttemptId: null, logs: {},
     attempts: null, attemptsErr: null, attemptsCode: null, attemptsDone: false,
     actionErr: null, actionCode: null, actionOk: null,
+    deleteConfirmOpen: false, deleteBusy: false,
     lastUpdated: null, connLost: false, hidden: false,
     form: { mode: 'once', cron: '*/5 * * * *', startsAt: '', endsAt: '', name: 'send_email', handler: 'email.send', queue: 'default', priority: 5, payload: '{\n  "to": "a@b.com",\n  "template": "welcome"\n}' },
     payloadError: null, submitErr: null, submitCode: null, submitting: false, createdId: null
   };
 
-  // ── API layer — one line per endpoint ─────────────────────────────────
   API_BASE = '/api/v1';
   err(code, message, status) { const e = new Error(message); e.code = code; e.status = status || 500; return e; }
   async api(path, opts) {
-    const res = await fetch(this.API_BASE + path, opts);       // same-origin, relative
+    const res = await fetch(this.API_BASE + path, opts);
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      // The server returns the error flat: { message, code, fields? }
       const env = body && body.code ? body : { code: 'unknown', message: 'request failed' };
       throw this.err(env.code, env.message, res.status);
     }
@@ -139,9 +132,6 @@ class Component extends DCLogic {
   getJobs(qs) { return this.api('/jobs?' + qs); }
   getAttempts(qs) { return this.api('/jobs/attempts?' + qs); }
   getAttemptLogs(jobId, attemptId) { return this.api('/jobs/' + jobId + '/attempts/' + attemptId + '/logs?limit=100'); }
-  // The server keeps the job and its attempts on separate endpoints, so the detail view
-  // composes them here. attempt_no is positional (attempts come back started_at ascending)
-  // and the server calls the failure text `result`.
   async getJob(id) {
     const [job, at] = await Promise.all([
       this.api('/jobs/' + id),
@@ -154,8 +144,6 @@ class Component extends DCLogic {
       }))
     };
   }
-  // Every mutation sends the version the client last saw. The server enforces it, so a stale
-  // tab gets a 409 instead of silently clobbering a concurrent change.
   postJSON(path, body) {
     return this.api(path, {
       method: 'POST',
@@ -165,16 +153,15 @@ class Component extends DCLogic {
   }
   postCancel(id, version) { return this.postJSON('/jobs/' + id + '/cancel', { version: version }); }
   postRerun(id, version) { return this.postJSON('/jobs/' + id + '/rerun', { version: version }); }
-  // One endpoint carries both directions; there is no /resume route.
   pauseCall(id, paused, version) { return this.postJSON('/jobs/' + id + '/pause', { paused: paused, version: version }); }
   postPause(id, version) { return this.pauseCall(id, true, version); }
   postResume(id, version) { return this.pauseCall(id, false, version); }
   postSchedule(id, body) { return this.api('/jobs/' + id + '/schedule', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+  deleteJob(id) { return this.api('/jobs/' + id, { method: 'DELETE' }); }
   postJob(body) {
     return this.postJSON('/jobs', body);
   }
 
-  polls = 0;
   route() {
     const h = this.state.url || '/';
     const bits = h.split('?');
@@ -232,15 +219,12 @@ class Component extends DCLogic {
     const q = qp.toString();
     return '/jobs' + (q ? '?' + q : '');
   }
-  // Real paths via the History API — the Go handler falls back to index.html for any
-  // extension-less path, so a cold load or refresh on /jobs/<id> resolves.
   go(h) {
     if (h === location.pathname + location.search) return;
     history.pushState(null, '', h);
     this.onNav();
   }
 
-  // ── loading ───────────────────────────────────────────────────────────
   fail(key, e) {
     const has = this.state[key] !== null && this.state[key] !== undefined;
     if (has) this.setState({ connLost: true });
@@ -252,28 +236,24 @@ class Component extends DCLogic {
     if (r.path === '/') {
       try { const d = await this.getQueues(); this.ok({ queues: d, queuesErr: null, queuesDone: true }); } catch (e) { this.fail('queues', e); }
       try { const d = await this.getWorkers(); this.ok({ workers: d.workers, workersErr: null, workersDone: true }); } catch (e) { this.fail('workers', e); }
-      try { const d = await this.getJobs('state=dead&limit=6&offset=0'); this.ok({ odead: d.jobs }); } catch (e) { /* tiles degrade */ }
-      try { const d = await this.getJobs('job_type=cron&limit=100&offset=0'); this.ok({ schedules: d.jobs }); } catch (e) { /* tiles degrade */ }
+      try { const d = await this.getJobs('state=dead&limit=6&offset=0'); this.ok({ odead: d.jobs }); } catch (e) {}
+      try { const d = await this.getJobs('job_type=cron&limit=100&offset=0'); this.ok({ schedules: d.jobs }); } catch (e) {}
     } else if (r.path === '/jobs') {
       try { const d = await this.getJobs(this.jobsQuery(r)); this.ok({ jobs: d.jobs, pagination: d.pagination, jobsErr: null, jobsDone: true }); } catch (e) { this.fail('jobs', e); }
-      // Only to populate the queue and handler filter pickers — a failure here must not
-      // blank the table, so it degrades to "all queues" / "all handlers" instead.
-      try { const d = await this.getQueues(); this.ok({ queues: d }); } catch (e) { /* pickers degrade */ }
-      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) { /* pickers degrade */ }
+      try { const d = await this.getQueues(); this.ok({ queues: d }); } catch (e) {}
+      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) {}
     } else if (r.path === '/attempts') {
       try { const d = await this.getAttempts(this.attemptsQuery(r)); this.ok({ attempts: d.attempts, pagination: d.pagination, attemptsErr: null, attemptsDone: true }); } catch (e) { this.fail('attempts', e); }
-      try { const d = await this.getQueues(); this.ok({ queues: d }); } catch (e) { /* pickers degrade */ }
-      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) { /* pickers degrade */ }
+      try { const d = await this.getQueues(); this.ok({ queues: d }); } catch (e) {}
+      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) {}
     } else if (r.path === '/submit') {
       try {
         const d = await this.getQueues();
         this.ok({ queues: d });
-        // The form's seeded queue is a guess; snap it to a real one so an untouched form
-        // submits instead of 422ing on an unknown queue.
         const names = d.map(q => q.queue);
         if (names.length && names.indexOf(this.state.form.queue) === -1) this.setForm('queue', names[0]);
-      } catch (e) { /* pickers degrade */ }
-      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) { /* pickers degrade */ }
+      } catch (e) {}
+      try { const d = await this.getHandlers(); this.ok({ handlers: d.handlers }); } catch (e) {}
     } else if (r.detailId) {
       try { const d = await this.getJob(r.detailId); this.ok({ detail: d, detailErr: null, detailDone: true }); } catch (e) { this.fail('detail', e); }
     } else if (r.handlerId) {
@@ -301,8 +281,6 @@ class Component extends DCLogic {
         detail: null, detailErr: null, detailDone: false, actionErr: null, actionOk: null,
         hdetail: null, hdetailErr: null, hdetailDone: false, handlersDone: false, schedDone: false, schedOpen: false, schedBusy: false,
         queuesDone: false, queues: this.state.queues, expanded: {}, attemptsFilter: 'last5',
-        // A debounced search navigates while the box may still have focus; re-seeding from
-        // the URL then would drop whatever was typed during the in-flight fetch.
         search: this.searchTimer ? this.state.search : (new URLSearchParams(location.search).get('q') || ''),
         searchPending: !!this.searchTimer,
         attempts: null, attemptsErr: null, attemptsCode: null, attemptsDone: false,
@@ -315,8 +293,6 @@ class Component extends DCLogic {
       }, () => this.load());
     };
     window.addEventListener('popstate', this.onNav);
-    // Same-origin links route in-app; modified clicks and new-tab intents fall through
-    // to the browser so middle-click and ctrl-click still open a real tab.
     this.onLinkClick = (e) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = e.target.closest && e.target.closest('a[href]');
@@ -353,8 +329,7 @@ class Component extends DCLogic {
     window.addEventListener('keydown', this.onKey);
     this.load();
     this.poll = setInterval(() => {
-      if (document.hidden) return;                    // single shared 3s interval, paused when hidden
-      this.polls += 1;
+      if (document.hidden) return;
       this.load();
     }, (this.props.pollSeconds || 3) * 1000);
     this.ticker = setInterval(() => this.setState({ tick: this.state.tick + 1 }), 1000);
@@ -367,7 +342,6 @@ class Component extends DCLogic {
     document.removeEventListener('visibilitychange', this.onVis);
   }
 
-  // ── formatting ────────────────────────────────────────────────────────
   dur(sec) {
     sec = Math.max(0, Math.floor(sec));
     if (sec < 60) return sec + 's';
@@ -376,8 +350,6 @@ class Component extends DCLogic {
     return Math.floor(sec / 86400) + 'd ' + Math.floor((sec % 86400) / 3600) + 'h';
   }
   rel(iso) { if (!iso) return '—'; return this.dur((Date.now() - Date.parse(iso)) / 1000) + ' ago'; }
-  relShort(iso) { if (!iso) return '—'; return this.dur((Date.now() - Date.parse(iso)) / 1000); }
-  abs(iso) { return iso || '—'; }
   ts(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
@@ -393,8 +365,6 @@ class Component extends DCLogic {
     const p = (n) => String(n).padStart(2, '0');
     return p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds());
   }
-  // Table columns stack the date over the clock: three full timestamps side by side push
-  // the row past the viewport and reintroduce the horizontal scrollbar.
   tsDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -408,15 +378,38 @@ class Component extends DCLogic {
     if (isNaN(d.getTime())) return '';
     return this.tsTime(iso) + 'Z';
   }
-  // job_attempts.worker_id stores the worker identity "<name>:<run-uuid>", while GET /workers
-  // reports the bare run uuid — so the name is parsed out of the identity, never looked up.
-  // A lost dispatch records an attempt with no worker at all.
   workerLabel(id) {
     if (!id) return { name: 'not claimed', title: 'no worker claimed this dispatch', missing: true };
     const i = String(id).lastIndexOf(':');
     return { name: i > 0 ? String(id).slice(0, i) : String(id), title: String(id), missing: false };
   }
   msDur(a, b) { if (!a || !b) return '—'; const ms = Date.parse(b) - Date.parse(a); return ms < 10000 ? (ms / 1000).toFixed(2) + 's' : this.dur(ms / 1000); }
+  idShort(id) { return id.slice(0, 8) + '…'; }
+  workerMissingStyle(wk) {
+    return { color: wk.missing ? 'var(--k-faint)' : 'var(--k-text2)', fontStyle: wk.missing ? 'italic' : 'normal', whiteSpace: 'nowrap' };
+  }
+  elapsedStyle(secs) {
+    return { color: secs > 300 ? 'var(--k-crit-fg)' : secs > 60 ? 'var(--k-warn-fg)' : 'var(--k-text2)', fontWeight: secs > 300 ? 700 : 500 };
+  }
+  retryCountStyle(count) {
+    return { color: count > 3 ? 'var(--k-crit-fg)' : count > 0 ? 'var(--k-warn-fg)' : 'var(--k-muted)' };
+  }
+  deadCountStyle(count) {
+    return { color: count ? 'var(--k-crit-fg)' : 'var(--k-muted)', fontWeight: count ? 700 : 500 };
+  }
+  tagStyle(crit, opts) {
+    return Object.assign({
+      display: 'inline-block', whiteSpace: 'nowrap', font: '600 10.5px var(--font-heading)',
+      letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 7px',
+      background: crit ? 'var(--k-crit-bg2)' : 'var(--k-warn-bg)',
+      color: crit ? 'var(--k-crit-fg)' : 'var(--k-warn-fg)',
+      border: '1px solid ' + (crit ? 'var(--k-crit-border)' : 'var(--k-warn-border)')
+    }, opts || {});
+  }
+  sortBy(list, keyFn, dir) {
+    const d = dir === 'desc' ? -1 : 1;
+    return list.slice().sort((a, b) => { const av = keyFn(a), bv = keyFn(b); return av < bv ? -d : av > bv ? d : 0; });
+  }
 
   badge(state) {
     const map = {
@@ -431,8 +424,6 @@ class Component extends DCLogic {
       paused: { background: 'var(--k-warn-bg)', color: 'var(--k-warn-fg)', border: '1px solid var(--k-warn-border)' },
       in_progress: { background: 'var(--color-accent)', color: 'var(--color-bg)', border: '1px solid var(--color-accent-700)' },
       failed: { background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)' },
-      // Neither a failure nor a success: the dispatch was never claimed, or the attempt was
-      // replaced by a newer one. Distinct hues so they don't read as red or green.
       lost: { background: 'var(--k-lost-bg)', color: 'var(--k-lost-fg)', border: '1px solid var(--k-lost-border)' },
       superseded: { background: 'var(--k-sup-bg)', color: 'var(--k-sup-fg)', border: '1px solid var(--k-sup-border)' }
     };
@@ -456,8 +447,6 @@ class Component extends DCLogic {
       border: '1px solid ' + (isCron ? 'var(--k-line)' : 'var(--color-divider)')
     };
   }
-  // The bar is a severity meter, not a composition breakdown: width is this queue's share of
-  // the deepest queue, hue ramps green→red so the worst backlog is findable at a glance.
   depthBar(depth, scale) {
     if (!depth) return { width: '0%', background: 'transparent' };
     const pct = Math.max(2, (depth / Math.max(1, scale)) * 100);
@@ -465,7 +454,6 @@ class Component extends DCLogic {
     return { width: Math.min(100, pct) + '%', background: 'hsl(' + Math.round(hue) + ',55%,42%)' };
   }
 
-  // ── actions ───────────────────────────────────────────────────────────
   stepPage(d) {
     const r = this.route();
     if (r.path !== '/jobs' && r.path !== '/attempts') return;
@@ -523,7 +511,7 @@ class Component extends DCLogic {
       const d = await this.getJob(r.detailId); this.ok({ detail: d });
     } catch (e) {
       this.setState({ actionErr: e.message, actionCode: 'error · ' + e.code + ' · ' + e.status });
-      try { const d = await this.getJob(r.detailId); this.ok({ detail: d }); } catch (e2) { /* keep stale */ }
+      try { const d = await this.getJob(r.detailId); this.ok({ detail: d }); } catch (e2) {}
     }
   }
   setSchedForm(k, val) { this.setState(s => ({ schedForm: Object.assign({}, s.schedForm, { [k]: val }) })); }
@@ -556,13 +544,23 @@ class Component extends DCLogic {
       this.setState({ schedBusy: false, actionErr: e.message, actionCode: e.code });
     }
   }
+  async confirmDelete() {
+    const id = this.route().detailId;
+    this.setState({ deleteBusy: true, actionErr: null, actionOk: null });
+    try {
+      await this.deleteJob(id);
+      this.go('/jobs');
+    } catch (e) {
+      this.setState({ deleteBusy: false, deleteConfirmOpen: false, actionErr: e.message, actionCode: e.code });
+    }
+  }
   copy(text) {
     try {
       if (navigator.clipboard) navigator.clipboard.writeText(text);
       else {
         const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
     this.setState({ copied: true });
     setTimeout(() => this.setState({ copied: false }), 1600);
   }
@@ -588,7 +586,7 @@ class Component extends DCLogic {
     try { payload = JSON.parse(f.payload); } catch (e) { return this.setState({ payloadError: 'invalid JSON — ' + e.message, submitErr: null, createdId: null }); }
     this.setState({ payloadError: null, submitErr: null, createdId: null, submitting: true });
     try {
-      const res = await this.postJob(Object.assign({ name: f.name, handler: f.handler, queue: f.queue, payload: payload, priority: Number(f.priority) }, this.formSchedule()));
+      const res = await this.postJob(this.formBody());
       this.setState({ createdId: res.id, submitting: false });
     } catch (e) {
       this.setState({ submitErr: e.message, submitCode: e.code + ' · ' + e.status, submitting: false });
@@ -620,8 +618,6 @@ class Component extends DCLogic {
       navQueues: r.path === '/queues' ? 'page' : undefined,
       isAttempts: r.path === '/attempts',
       navAttempts: r.path === '/attempts' ? 'page' : undefined,
-      // Anything the router does not claim. Derived from the known paths rather than a
-      // second list, so adding a page cannot leave a route falling through to 404.
       isNotFound: ['/', '/jobs', '/queues', '/schedules', '/handlers', '/workers', '/submit', '/docs', '/attempts']
         .indexOf(r.path) === -1 && !r.detailId && !r.workerId && !r.handlerId,
       notFoundPath: r.path,
@@ -636,7 +632,6 @@ class Component extends DCLogic {
       },
       onRetry: () => { this.setState({ queuesErr: null, jobsErr: null, workersErr: null, detailErr: null, handlersErr: null, hdetailErr: null, attemptsErr: null, queuesDone: false, jobsDone: false, workersDone: false, detailDone: false, handlersDone: false, hdetailDone: false, attemptsDone: false }, () => this.load(true)); }
     };
-    // handlers
     const fmtMs = (ms) => ms === null || ms === undefined ? '—' : (ms < 10000 ? (ms / 1000).toFixed(2) + 's' : this.dur(ms / 1000));
     const fmtRate = (x) => x === null || x === undefined ? '—' : (x * 100).toFixed(x >= 0.995 || x === 0 ? 0 : 1) + '%';
     const rateStyle = (x) => {
@@ -655,51 +650,40 @@ class Component extends DCLogic {
     v.handlerCount = hs ? hs.length : '–';
     v.handlersFailing = hs ? hs.filter(h => h.counts.dead > 0).length : '–';
     v.handlersRunning = hs ? hs.reduce((a, h) => a + h.counts.running, 0) : '–';
-    // Stranded, not merely unregistered: a handler nothing has enqueued for in months is
-    // retired, not broken. It only becomes a problem once work is waiting on it.
-    const stranded = (h) => !h.registered && h.counts.pending + h.counts.queued > 0;
-    v.handlersStranded = hs ? hs.filter(stranded).length : '–';
-    const hkey = s.hSortKey, hdir = s.hSortDir === 'asc' ? 1 : -1;
+    const hkey = s.hSortKey;
     const hval = (h) => hkey === 'handler' ? h.handler : hkey === 'total' ? h.total : hkey === 'running' ? h.counts.running
       : hkey === 'dead' ? h.counts.dead : hkey === 'rate' ? (h.success_rate === null ? -1 : h.success_rate) : (h.avg_run_ms === null ? -1 : h.avg_run_ms);
-    const hsorted = (hs || []).slice().sort((a, b) => { const av = hval(a), bv = hval(b); return av < bv ? -hdir : av > bv ? hdir : 0; });
+    const hsorted = this.sortBy(hs || [], hval, s.hSortDir);
     const hArrow = (k) => s.hSortKey === k ? (s.hSortDir === 'asc' ? ' ▲' : ' ▼') : '';
     v.hArrowHandler = hArrow('handler'); v.hArrowTotal = hArrow('total'); v.hArrowRunning = hArrow('running');
     v.hArrowDead = hArrow('dead'); v.hArrowRate = hArrow('rate'); v.hArrowAvg = hArrow('avg');
     const hSort = (k) => () => this.setState(s.hSortKey === k ? { hSortDir: s.hSortDir === 'asc' ? 'desc' : 'asc' } : { hSortKey: k, hSortDir: k === 'handler' ? 'asc' : 'desc' });
     v.onHSortHandler = hSort('handler'); v.onHSortTotal = hSort('total'); v.onHSortRunning = hSort('running');
     v.onHSortDead = hSort('dead'); v.onHSortRate = hSort('rate'); v.onHSortAvg = hSort('avg');
-    const flagStyle = (bad) => ({ display: 'inline-block', marginTop: '3px', whiteSpace: 'nowrap', font: '600 10.5px var(--font-heading)', letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 7px', background: bad ? 'var(--k-crit-bg2)' : 'var(--k-warn-bg)', color: bad ? 'var(--k-crit-fg)' : 'var(--k-warn-fg)', border: '1px solid ' + (bad ? 'var(--k-crit-border)' : 'var(--k-warn-border)') });
     v.handlerRows = hsorted.map(h => {
       const bad = h.success_rate !== null && h.success_rate < 0.6;
       const warn = h.counts.awaiting_retry > 0;
-      // Outranks the other two flags: a bad success rate is history, but a stranded handler
-      // means the work waiting on it cannot run at all until a worker registers the name.
-      const cutOff = stranded(h);
       return {
         handler: h.handler, total: h.total,
-        registered: h.registered,
         queuesShown: h.queues.slice(0, 3),
         queuesMore: h.queues.length > 3 ? '+' + (h.queues.length - 3) : '',
         queuesAll: h.queues.join(', '),
         backlog: h.counts.pending + h.counts.queued,
         running: h.counts.running, awaiting_retry: h.counts.awaiting_retry, dead: h.counts.dead,
         retryStyle: { color: h.counts.awaiting_retry ? 'var(--k-warn-fg)' : 'var(--k-muted)' },
-        deadStyle: { color: h.counts.dead ? 'var(--k-crit-fg)' : 'var(--k-muted)', fontWeight: h.counts.dead ? 700 : 500 },
+        deadStyle: this.deadCountStyle(h.counts.dead),
         successRate: fmtRate(h.success_rate), rateStyle: rateStyle(h.success_rate),
         avgRun: fmtMs(h.avg_run_ms),
         lastDate: this.tsDate(h.last_activity_at) || '—', lastClock: this.tsClock(h.last_activity_at),
         lastAbs: this.rel(h.last_activity_at),
-        unhealthy: cutOff || bad || warn,
-        unhealthyLabel: cutOff ? 'stranded · ' + (h.counts.pending + h.counts.queued) + ' waiting, no worker'
-          : bad ? 'failing · ' + h.counts.dead + ' dead' : 'retrying · ' + h.counts.awaiting_retry,
-        unhealthyStyle: flagStyle(cutOff || bad),
+        unhealthy: bad || warn,
+        unhealthyLabel: bad ? 'failing · ' + h.counts.dead + ' dead' : 'retrying · ' + h.counts.awaiting_retry,
+        unhealthyStyle: this.tagStyle(bad, { marginTop: '3px' }),
         onOpen: () => this.go('/handlers/' + encodeURIComponent(h.handler)),
         onKey: (e) => { if (e.key === 'Enter') this.go('/handlers/' + encodeURIComponent(h.handler)); }
       };
     });
 
-    // handler detail
     if (r.handlerId) {
       v.handlerDetailId = r.handlerId;
       v.handlerJobsHref = '/jobs?handler=' + encodeURIComponent(r.handlerId);
@@ -708,14 +692,11 @@ class Component extends DCLogic {
       if (hd) {
         const h = hd.handler;
         const bad = h.success_rate !== null && h.success_rate < 0.6;
-        const cutOff = stranded(h);
-        v.handlerHealthLabel = cutOff ? 'stranded' : !h.registered ? 'unclaimed' : bad ? 'failing' : h.counts.awaiting_retry ? 'retrying' : 'healthy';
-        v.handlerHealthStyle = Object.assign(this.badge(cutOff || bad ? 'dead' : !h.registered || h.counts.awaiting_retry ? 'awaiting_retry' : 'success'), { fontSize: '12px' });
+        v.handlerHealthLabel = bad ? 'failing' : h.counts.awaiting_retry ? 'retrying' : 'healthy';
+        v.handlerHealthStyle = Object.assign(this.badge(bad ? 'dead' : h.counts.awaiting_retry ? 'awaiting_retry' : 'success'), { fontSize: '12px' });
         v.hd = {
           total: h.total, successRate: fmtRate(h.success_rate), avgRun: fmtMs(h.avg_run_ms),
           dead: h.counts.dead, queues: h.queues,
-          registered: h.registered, workers: h.workers || [],
-          workersEmpty: !h.workers || !h.workers.length,
           lastRel: this.ts(h.last_activity_at), lastAbs: this.rel(h.last_activity_at),
           stateRows: this.STATES.map(st => ({
             state: st, count: h.counts[st], badgeStyle: this.badge(st),
@@ -723,9 +704,9 @@ class Component extends DCLogic {
           })),
           recentCount: hd.jobs.length + (hd.jobs.length === 1 ? ' job' : ' jobs'),
           recentRows: hd.jobs.map(j => ({
-            idShort: j.id.slice(0, 8) + '…', name: j.name, queue: j.queue, state: j.state,
+            idShort: this.idShort(j.id), name: j.name, queue: j.queue, state: j.state,
             badgeStyle: this.badge(j.state), retry_count: j.retry_count,
-            retryStyle: { color: j.retry_count > 3 ? 'var(--k-crit-fg)' : j.retry_count > 0 ? 'var(--k-warn-fg)' : 'var(--k-muted)' },
+            retryStyle: this.retryCountStyle(j.retry_count),
             updatedRel: this.ts(j.updated_at), updatedAbs: this.rel(j.updated_at),
             onOpen: () => this.go('/jobs/' + j.id)
           }))
@@ -733,7 +714,6 @@ class Component extends DCLogic {
       }
     }
 
-    // overview
     const qs = s.queues;
     v.queuesLoading = !s.queuesDone && !qs && !s.queuesErr;
     v.queuesError = s.queuesErr; v.queuesErrorCode = s.queuesCode;
@@ -753,14 +733,14 @@ class Component extends DCLogic {
         workerCount: workerCount,
         workersStyle: { color: workerCount === 0 ? 'var(--k-crit-fg)' : 'var(--k-text2)', fontWeight: workerCount === 0 ? 700 : 500 },
         isDead: isDead,
-        deadStyle: { display: 'inline-block', marginTop: '3px', whiteSpace: 'nowrap', font: '600 10.5px var(--font-heading)', letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 7px', background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)' },
+        deadStyle: this.tagStyle(true, { marginTop: '3px' }),
         pending: q.counts.pending, queued: q.counts.queued, running: q.counts.running,
         awaiting_retry: q.counts.awaiting_retry, redis_buffered: q.redis_buffered,
         depth: qDepth(q),
         retryStyle: { color: q.counts.awaiting_retry ? 'var(--k-warn-fg)' : 'inherit', fontWeight: q.counts.awaiting_retry ? 600 : 500 },
         depthBar: this.depthBar(qDepth(q), maxDepth),
         dead: q.counts.dead,
-        qDeadStyle: { color: q.counts.dead ? 'var(--k-crit-fg)' : 'var(--k-muted)', fontWeight: q.counts.dead ? 700 : 500 },
+        qDeadStyle: this.deadCountStyle(q.counts.dead),
         onOpen: () => this.go('/jobs?queue=' + q.queue),
         onKey: (e) => { if (e.key === 'Enter') this.go('/jobs?queue=' + q.queue); }
       };
@@ -777,11 +757,7 @@ class Component extends DCLogic {
     const upcoming = (scheds || []).filter(j => j.next_check_at).sort((a, b) => Date.parse(a.next_check_at) - Date.parse(b.next_check_at))[0];
     v.schedNextLabel = upcoming ? 'next ' + this.dueLabel(upcoming.next_check_at) : (scheds ? 'none armed' : '');
     const stalled = (scheds || []).filter(j => j.state === 'dead');
-    const stag = {
-      display: 'inline-block', whiteSpace: 'nowrap', font: '600 10.5px var(--font-heading)', letterSpacing: '.06em',
-      textTransform: 'uppercase', padding: '2px 7px',
-      background: 'var(--k-crit-bg2)', color: 'var(--k-crit-fg)', border: '1px solid var(--k-crit-border)'
-    };
+    const stag = this.tagStyle(true, { padding: '2px 7px' });
     v.hasStalled = stalled.length > 0;
     v.stalledSummary = stalled.length + (stalled.length === 1 ? ' schedule is not firing' : ' schedules are not firing');
     v.stalledRows = stalled.slice(0, 6).map(j => ({
@@ -805,7 +781,6 @@ class Component extends DCLogic {
       onOpen: () => this.go('/jobs/' + j.id)
     }));
 
-    // jobs
     v.jobsRequestPath = '/jobs?' + this.jobsQuery(r);
     v.urlQuery = this.urlFor(r).split('?')[1] || '';
     const chipStyle = (on) => ({
@@ -822,17 +797,7 @@ class Component extends DCLogic {
     }));
     v.stateChips = this.STATES.map(st => {
       const on = r.states.indexOf(st) !== -1;
-      return {
-        label: st, pressed: on ? 'true' : 'false',
-        onToggle: () => this.toggleState(st),
-        style: {
-          font: '600 11.5px var(--font-heading)', letterSpacing: '.04em', textTransform: 'uppercase',
-          padding: '4px 9px', cursor: 'pointer', borderRadius: 0,
-          background: on ? 'var(--color-accent)' : 'transparent',
-          color: on ? 'var(--color-bg)' : 'var(--k-text2)',
-          border: '1px solid ' + (on ? 'var(--color-accent-700)' : 'var(--color-divider)')
-        }
-      };
+      return { label: st, pressed: on ? 'true' : 'false', onToggle: () => this.toggleState(st), style: chipStyle(on) };
     });
     v.queueOptions = [{ value: '', label: 'all queues' }].concat((s.queues || []).map(q => ({ value: q.queue, label: q.queue })));
     v.queueValue = r.queue;
@@ -869,7 +834,6 @@ class Component extends DCLogic {
       this.setState({ searchPending: false });
       this.go(this.urlFor(rr));
     };
-    // Fires itself once typing settles; Enter short-circuits the wait.
     v.onSearchChange = (e) => {
       const val = e.target.value;
       clearTimeout(this.searchTimer);
@@ -889,25 +853,21 @@ class Component extends DCLogic {
     v.onSortCreated = () => this.toggleSort('created_at'); v.onSortUpdated = () => this.toggleSort('updated_at');
     let filtered = (s.jobs || []).slice();
     if (s.sortKey) {
-      const k = s.sortKey, dir = s.sortDir === 'asc' ? 1 : -1;
-      filtered = filtered.slice().sort((a, b) => {
-        const av = k === 'created_at' || k === 'updated_at' ? Date.parse(a[k]) : a[k];
-        const bv = k === 'created_at' || k === 'updated_at' ? Date.parse(b[k]) : b[k];
-        return av < bv ? -dir : av > bv ? dir : 0;
-      });
+      const k = s.sortKey;
+      filtered = this.sortBy(filtered, a => k === 'created_at' || k === 'updated_at' ? Date.parse(a[k]) : a[k], s.sortDir);
     }
     v.jobRows = filtered.map(j => {
       const exp = !!s.rowExpanded[j.id];
       const cache = s.rowAttempts[j.id];
       const atRows = Array.isArray(cache) ? cache.slice().sort((a, b) => a.attempt_no - b.attempt_no) : [];
       return {
-        id: j.id, idShort: j.id.slice(0, 8) + '…', href: '/jobs/' + j.id,
+        id: j.id, idShort: this.idShort(j.id), href: '/jobs/' + j.id,
         name: j.name, queue: j.queue, state: j.state, badgeStyle: this.badge(j.state),
         handler: j.handler, handlerHref: '/handlers/' + encodeURIComponent(j.handler || ''),
         priority: j.priority,
         prioStyle: { color: j.priority <= 2 ? 'var(--k-crit-fg)' : j.priority <= 4 ? 'var(--k-warn-fg)' : 'var(--k-text2)', fontWeight: j.priority <= 2 ? 700 : 500 },
         retry_count: j.retry_count,
-        retryStyle: { color: j.retry_count > 3 ? 'var(--k-crit-fg)' : j.retry_count > 0 ? 'var(--k-warn-fg)' : 'var(--k-muted)' },
+        retryStyle: this.retryCountStyle(j.retry_count),
         delivery_count: j.delivery_count,
         createdDate: this.tsDate(j.created_at), createdClock: this.tsClock(j.created_at), createdAbs: this.rel(j.created_at),
         updatedDate: this.tsDate(j.updated_at), updatedClock: this.tsClock(j.updated_at), updatedAbs: this.rel(j.updated_at),
@@ -928,7 +888,7 @@ class Component extends DCLogic {
           const wk = this.workerLabel(a.worker_id);
           return {
             attempt_no: a.attempt_no, worker_id: wk.name, workerIdRaw: wk.title,
-            workerStyle: { color: wk.missing ? 'var(--k-faint)' : 'var(--k-text2)', fontStyle: wk.missing ? 'italic' : 'normal', whiteSpace: 'nowrap' },
+            workerStyle: this.workerMissingStyle(wk),
             outcome: a.outcome,
             outcomeStyle: this.badge(a.outcome), error: a.error || '—',
             startedDate: this.tsDate(a.started_at), startedClock: this.tsClock(a.started_at), startedAbs: this.rel(a.started_at),
@@ -947,15 +907,10 @@ class Component extends DCLogic {
     const pageRows = r.path === '/attempts' ? (s.attempts || []).length : (s.jobs || []).length;
     v.pageLabel = pg ? 'rows ' + (pg.offset + 1) + '–' + (pg.offset + pageRows) + (pg.has_more ? ' · more available' : ' · end of results') : '';
 
-    // schedules
     v.schedLoading = !s.schedDone && !s.schedules && !s.schedErr;
     v.schedEmpty = !!s.schedules && s.schedules.length === 0;
     v.schedReady = !!s.schedules && s.schedules.length > 0;
-    v.schedRows = (s.schedules || []).slice().sort((a, b) => {
-      const av = a.next_check_at ? Date.parse(a.next_check_at) : Infinity;
-      const bv = b.next_check_at ? Date.parse(b.next_check_at) : Infinity;
-      return av - bv;
-    }).map(j => ({
+    v.schedRows = this.sortBy(s.schedules || [], j => j.next_check_at ? Date.parse(j.next_check_at) : Infinity, 'asc').map(j => ({
       name: j.name, handler: j.handler, queue: j.queue, state: j.state,
       cron_expr: j.cron || '', human: j.cron ? this.cronHuman(j.cron) : '—',
       badgeStyle: this.badge(j.state),
@@ -973,13 +928,12 @@ class Component extends DCLogic {
         e.stopPropagation();
         try {
           await (j.state === 'paused' ? this.postResume(j.id, j.version) : this.postPause(j.id, j.version));
-        } catch (err) { /* surfaced on the row's next poll */ }
+        } catch (err) {}
         this.load(true);
       },
       onOpen: () => this.go('/jobs/' + j.id)
     }));
 
-    // detail
     v.detailId = r.detailId || '';
     v.backHref = this.urlFor({ states: [], queue: '', offset: 0 });
     v.detailLoading = !s.detailDone && !s.detail && !s.detailErr;
@@ -1009,6 +963,7 @@ class Component extends DCLogic {
       const isCron = (j.job_type || 'adhoc') === 'cron';
       const runCount = (d.attempts || []).length;
       v.jobIsCron = isCron;
+      v.jobIsAdhoc = !isCron;
       v.jobCronExpr = j.cron || '';
       v.jobCronHuman = j.cron ? this.cronHuman(j.cron) : '';
       v.schedTagStyle = {
@@ -1024,7 +979,6 @@ class Component extends DCLogic {
       v.jobStartsAbs = j.starts_at ? (Date.parse(j.starts_at) > Date.now() ? this.dueLabel(j.starts_at) : this.rel(j.starts_at)) : '—';
       v.jobEndsLabel = j.ends_at ? this.ts(j.ends_at) : 'no end';
       v.jobEndsAbs = j.ends_at ? (Date.parse(j.ends_at) > Date.now() ? this.dueLabel(j.ends_at) : 'closed ' + this.rel(j.ends_at)) : '—';
-      // There is no last_run_at on the server; the newest attempt is when it actually ran.
       const lastAttempt = (d.attempts || []).slice().sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))[0];
       v.lastRunLabel = lastAttempt ? this.ts(lastAttempt.started_at) : 'never run';
       v.lastRunAbs = lastAttempt ? this.rel(lastAttempt.started_at) : '—';
@@ -1033,7 +987,6 @@ class Component extends DCLogic {
       v.jobHasUpcoming = up.length > 0;
       v.jobUpcoming = up.map(t => ({ abs: t.slice(0, 16).replace('T', ' ') + 'Z', rel: this.dur((Date.parse(t) - Date.now()) / 1000) }));
       const terminal = ['success', 'dead', 'cancelled', 'expired'].indexOf(j.state) !== -1;
-      // Hold/release is a schedule operation: the server only pauses cron rows.
       const canPause = isCron && ['pending', 'queued', 'awaiting_retry', 'success'].indexOf(j.state) !== -1;
       v.jobIsPaused = j.state === 'paused';
       v.showResume = j.state === 'paused';
@@ -1045,7 +998,6 @@ class Component extends DCLogic {
       v.resumeHint = 'POST /jobs/' + j.id + '/pause {"paused":false} — re-arms at the next slot, not the ones missed';
       v.onPause = () => this.write('pause');
       v.onResume = () => this.write('resume');
-      // No paused_at column on the server; updated_at is the transition that paused it.
       v.pausedRel = j.updated_at ? this.ts(j.updated_at) : '';
       v.pausedNote = 'The scheduler skips this row entirely. Resuming arms it at the next slot — occurrences missed while paused are dropped, not backfilled.';
 
@@ -1088,6 +1040,14 @@ class Component extends DCLogic {
       v.onRerun = () => this.write('rerun');
       v.actionError = s.actionErr; v.actionErrorCode = s.actionCode; v.actionOk = s.actionOk;
       v.onDismissActionError = () => this.setState({ actionErr: null });
+
+      v.deleteConfirmOpen = !!s.deleteConfirmOpen;
+      v.deleteBusy = !!s.deleteBusy;
+      v.deleteConfirmLabel = s.deleteBusy ? 'deleting…' : 'confirm delete';
+      v.deleteHint = 'DELETE /jobs/' + j.id + ' — removes the row and its attempt history permanently';
+      v.onOpenDelete = () => this.setState({ deleteConfirmOpen: true, actionErr: null, actionOk: null });
+      v.onCloseDelete = () => this.setState({ deleteConfirmOpen: false });
+      v.onConfirmDelete = () => this.confirmDelete();
       const atAll = (d.attempts || []).slice().sort((a, b) => a.attempt_no - b.attempt_no);
 
       const newest = atAll.length ? atAll[atAll.length - 1] : null;
@@ -1113,7 +1073,6 @@ class Component extends DCLogic {
           textTransform: 'uppercase', fontSize: '10px', letterSpacing: '.08em', minWidth: '34px'
         }
       }));
-      // The handler may never have called the logger; the lifecycle is still worth showing.
       v.logsFellBack = !!selected && Array.isArray(cachedLogs) && logLines.length === 0;
       const jl = [];
       if (selected) {
@@ -1141,15 +1100,13 @@ class Component extends DCLogic {
         const wk = this.workerLabel(a.worker_id);
         return {
           attempt_no: a.attempt_no, worker_id: wk.name, workerIdRaw: wk.title,
-          workerStyle: { color: wk.missing ? 'var(--k-faint)' : 'var(--k-text2)', fontStyle: wk.missing ? 'italic' : 'normal', whiteSpace: 'nowrap' },
+          workerStyle: this.workerMissingStyle(wk),
           outcome: a.outcome,
           outcomeStyle: this.badge(a.outcome),
           error: a.error || '—',
           canExpand: long,
           toggleLabel: open ? 'collapse' : 'expand',
           onToggle: () => this.setState({ expanded: Object.assign({}, s.expanded, { [a.attempt_no]: !open }) }),
-          // Collapsed errors clamp to two lines rather than nowrap: a single long line sets
-          // the column's min-content width and pushes the whole table into a scrollbar.
           errorStyle: Object.assign({
             fontSize: '12.5px', color: a.error ? 'var(--k-crit-fg2)' : 'var(--k-faint)', lineHeight: 1.45,
             fontFamily: a.error ? 'ui-monospace,Menlo,Consolas,monospace' : 'inherit',
@@ -1182,7 +1139,6 @@ class Component extends DCLogic {
       v.jobTabAttemptsLabel = 'Attempts (' + atAll.length + ')';
     }
 
-    // workers
     v.workersLoading = !s.workersDone && !s.workers && !s.workersErr;
     v.workersError = s.workersErr; v.workersErrorCode = s.workersCode;
     v.workersEmpty = !!s.workers && s.workers.length === 0;
@@ -1208,9 +1164,9 @@ class Component extends DCLogic {
       running: (w.in_flight_jobs || []).map(j => {
         const secs = (Date.now() - Date.parse(j.started_at)) / 1000;
         return {
-          idShort: j.id.slice(0, 8) + '…', name: j.name, handler: j.handler, queue: j.queue,
+          idShort: this.idShort(j.id), name: j.name, handler: j.handler, queue: j.queue,
           elapsed: this.dur(secs),
-          elapsedStyle: { color: secs > 300 ? 'var(--k-crit-fg)' : secs > 60 ? 'var(--k-warn-fg)' : 'var(--k-text2)', fontWeight: secs > 300 ? 700 : 500 },
+          elapsedStyle: this.elapsedStyle(secs),
           onOpen: (e) => { e.stopPropagation(); this.go('/jobs/' + j.id); }
         };
       }),
@@ -1219,7 +1175,6 @@ class Component extends DCLogic {
       onOpen: () => this.go('/workers/' + w.id)
     }));
 
-    // worker detail
     if (r.workerId) {
       v.workerDetailId = r.workerId;
       const w = (s.workers || []).filter(x => x.id === r.workerId)[0];
@@ -1227,9 +1182,6 @@ class Component extends DCLogic {
       v.workerFound = !!w; v.workerNotFound = !w;
       if (w) {
         const staleSec = (Date.now() - Date.parse(w.last_seen)) / 1000;
-        // Two registry_intervals (10s each). At exactly one interval a healthy worker
-        // flickers stale every cycle; past two it has really missed a beat, and its key
-        // expires at registry_ttl (30s) anyway, which removes it from this list entirely.
         const online = staleSec < 20;
         v.workerStatusLabel = online ? 'online' : 'stale heartbeat';
         v.workerStatusStyle = Object.assign(this.badge(online ? 'running' : 'awaiting_retry'), { fontSize: '12px' });
@@ -1246,16 +1198,16 @@ class Component extends DCLogic {
         v.workerRunningRows = rj.map(j => {
           const secs = (Date.now() - Date.parse(j.started_at)) / 1000;
           return {
-            idShort: j.id.slice(0, 8) + '…', name: j.name, handler: j.handler, queue: j.queue,
+            idShort: this.idShort(j.id), name: j.name, handler: j.handler, queue: j.queue,
             elapsed: this.dur(secs),
-            elapsedStyle: { color: secs > 300 ? 'var(--k-crit-fg)' : secs > 60 ? 'var(--k-warn-fg)' : 'var(--k-text2)', fontWeight: secs > 300 ? 700 : 500 },
+            elapsedStyle: this.elapsedStyle(secs),
             onOpen: () => this.go('/jobs/' + j.id)
           };
         });
         const act = this.workerActivity(w.id);
         v.workerActivityEmpty = act.length === 0;
         v.workerActivityReady = act.length > 0;
-        v.workerActivityCount = act.length + (act.length === 1 ? ' attempt' : ' attempts') + ' (last 60)';
+        v.workerActivityCount = act.length + (act.length === 1 ? ' attempt' : ' attempts');
         v.workerActivityRows = act.map(a => ({
           job_name: a.job_name, queue: a.queue, outcome: a.outcome,
           outcomeStyle: this.badge(a.outcome),
@@ -1266,7 +1218,6 @@ class Component extends DCLogic {
       }
     }
 
-    // attempts
     const ats = s.attempts;
     v.attemptsPageLoading = !s.attemptsDone && !ats && !s.attemptsErr;
     v.attemptsPageError = s.attemptsErr; v.attemptsPageErrorCode = s.attemptsCode;
@@ -1284,11 +1235,11 @@ class Component extends DCLogic {
     v.attemptPageRows = (ats || []).map(a => {
       const wk = this.workerLabel(a.worker_id);
       return {
-        idShort: a.id.slice(0, 8) + '…',
+        idShort: this.idShort(a.id),
         job_name: a.job_name, handler: a.handler, queue: a.queue,
         handlerHref: '/handlers/' + encodeURIComponent(a.handler || ''),
         worker_id: wk.name, workerIdRaw: wk.title,
-        workerStyle: { color: wk.missing ? 'var(--k-faint)' : 'var(--k-text2)', fontStyle: wk.missing ? 'italic' : 'normal', whiteSpace: 'nowrap' },
+        workerStyle: this.workerMissingStyle(wk),
         outcome: a.outcome, outcomeStyle: this.badge(a.outcome),
         error: a.result || '—',
         errorStyle: {
@@ -1302,7 +1253,6 @@ class Component extends DCLogic {
       };
     });
 
-    // submit
     v.form = s.form;
     v.formQueueOptions = (s.queues || []).map(q => q.queue);
     const mode = s.form.mode || 'once';
