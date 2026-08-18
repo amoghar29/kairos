@@ -3,9 +3,8 @@ queue_limit: 10
 max_delivery_count: 3
 aging_rate: 0.0025
 claim_deadline: 6000 # in seconds; how long a queued job may go unclaimed before it is requeued
+
+# Queue names are yours to choose. Declare one entry per queue your workers will serve;
+# the API rejects a submission to any queue that is not listed here.
 queues:
-  - name: express
-  - name: standard
-  - name: bulk
-  - name: heavy
-  - name: glacial
+  - name: default
