@@ -442,7 +442,7 @@ Everything lives under `/api/v1`. Every other path is the dashboard.
 | `POST` | `/jobs/{id}/cancel` | only `pending` / `queued` / `awaiting_retry` / `paused`, or a re-arming cron row |
 | `POST` | `/jobs/{id}/rerun` | only `dead`, and only inside `ends_at`; resets `retry_count` and `delivery_count` |
 | `POST` | `/jobs/{id}/pause` | body `{"version": n, "paused": true\|false}`, **cron jobs only** |
-| `POST` | `/jobs/{id}/schedule` | replace `cron` / `starts_at` / `ends_at` (alias: `/reschedule`) |
+| `POST` | `/jobs/{id}/schedule` | replace `cron` / `starts_at` / `ends_at` |
 | `GET` | `/jobs/attempts` | every attempt across all jobs, newest first; filter by `outcome`, `handler`, `queue` |
 | `GET` | `/jobs/{id}/attempts` | execution history for one job, oldest first |
 | `GET` | `/jobs/{id}/attempts/{attemptID}/logs` | log lines for one attempt |

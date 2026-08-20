@@ -42,7 +42,6 @@ func (app *Application) Routes() http.Handler {
 					r.Post("/rerun", app.RerunJob)
 					r.Post("/pause", app.PauseJob)
 					r.Post("/schedule", app.RescheduleJob)
-					r.Post("/reschedule", app.RescheduleJob)
 					r.Route("/attempts", func(r chi.Router) {
 						r.Get("/", app.ListJobAttempts)
 						r.Get("/{attemptID}/logs", app.ListAttemptLogs)
