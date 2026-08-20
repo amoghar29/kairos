@@ -10,6 +10,7 @@ import (
 
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/job"
+	"github.com/amoghar29/kairos/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -37,19 +38,19 @@ func jobIDFromURL(r *http.Request) (pgtype.UUID, error) {
 }
 
 func (app *Application) CreateJob(w http.ResponseWriter, r *http.Request) {
-	var req CreateJobRequest
+	var req models.CreateJobRequest
 	if err := decodeBody(w, r, &req); err != nil {
 		app.badRequest(w, r, err.Error())
 		return
 	}
 
 	idempotencyKey := r.Header.Get("Idempotency-Key")
-	if fields := req.Validate(app.Queues, idempotencyKey); fields != nil {
+	if fields := validateCreateJob(&req, app.Queues, idempotencyKey); fields != nil {
 		app.failedValidation(w, r, fields)
 		return
 	}
 
-	created, isNew, err := app.JobRepository.Create(r.Context(), req.ToParams(idempotencyKey))
+	created, isNew, err := app.JobRepository.Create(r.Context(), createJobParams(&req, idempotencyKey))
 	if err != nil {
 		app.serverError(w, r, err)
 		return
@@ -103,7 +104,7 @@ func (app *Application) ListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobs, pagination := splitPage(jobs, page)
-	app.writeJSON(w, r, http.StatusOK, JobListResponse{
+	app.writeJSON(w, r, http.StatusOK, models.JobListResponse{
 		Jobs:       mapSlice(jobs, NewJobResponse),
 		Pagination: pagination,
 	})
@@ -135,12 +136,12 @@ func (app *Application) CancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req VersionRequest
+	var req models.VersionRequest
 	if err := decodeBody(w, r, &req); err != nil {
 		app.badRequest(w, r, err.Error())
 		return
 	}
-	if fields := req.Validate(); fields != nil {
+	if fields := validateVersion(&req); fields != nil {
 		app.failedValidation(w, r, fields)
 		return
 	}
@@ -168,12 +169,12 @@ func (app *Application) RerunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req VersionRequest
+	var req models.VersionRequest
 	if err := decodeBody(w, r, &req); err != nil {
 		app.badRequest(w, r, err.Error())
 		return
 	}
-	if fields := req.Validate(); fields != nil {
+	if fields := validateVersion(&req); fields != nil {
 		app.failedValidation(w, r, fields)
 		return
 	}
@@ -201,12 +202,12 @@ func (app *Application) PauseJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req PauseRequest
+	var req models.PauseRequest
 	if err := decodeBody(w, r, &req); err != nil {
 		app.badRequest(w, r, err.Error())
 		return
 	}
-	if fields := req.Validate(); fields != nil {
+	if fields := validatePause(&req); fields != nil {
 		app.failedValidation(w, r, fields)
 		return
 	}
@@ -243,12 +244,12 @@ func (app *Application) RescheduleJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req RescheduleRequest
+	var req models.RescheduleRequest
 	if err := decodeBody(w, r, &req); err != nil {
 		app.badRequest(w, r, err.Error())
 		return
 	}
-	if fields := req.Validate(); fields != nil {
+	if fields := validateReschedule(&req); fields != nil {
 		app.failedValidation(w, r, fields)
 		return
 	}
@@ -268,7 +269,7 @@ func (app *Application) RescheduleJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rescheduled, err := app.JobRepository.Reschedule(r.Context(), req.ToParams(id))
+	rescheduled, err := app.JobRepository.Reschedule(r.Context(), rescheduleParams(&req, id))
 	switch {
 	case errors.Is(err, job.ErrNotFound):
 		app.notFound(w, r)
@@ -313,7 +314,7 @@ func (app *Application) ListJobAttempts(w http.ResponseWriter, r *http.Request) 
 	}
 
 	attempts, pagination := splitPage(attempts, page)
-	app.writeJSON(w, r, http.StatusOK, JobAttemptListResponse{
+	app.writeJSON(w, r, http.StatusOK, models.JobAttemptListResponse{
 		Attempts:   mapSlice(attempts, NewJobAttemptResponse),
 		Pagination: pagination,
 	})
@@ -369,7 +370,7 @@ func (app *Application) ListAttemptLogs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	res := JobLogListResponse{Logs: mapSlice(logs, NewJobLogResponse)}
+	res := models.JobLogListResponse{Logs: mapSlice(logs, NewJobLogResponse)}
 	if n := len(res.Logs); n > 0 {
 		res.NextSeq = &res.Logs[n-1].Seq
 	}
@@ -397,7 +398,7 @@ func (app *Application) ListAttempts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	attempts, pagination := splitPage(attempts, page)
-	app.writeJSON(w, r, http.StatusOK, AttemptListResponse{
+	app.writeJSON(w, r, http.StatusOK, models.AttemptListResponse{
 		Attempts:   attempts,
 		Pagination: pagination,
 	})
@@ -426,7 +427,7 @@ func (app *Application) ListQueues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app.writeJSON(w, r, http.StatusOK, stats)
+	app.writeJSON(w, r, http.StatusOK, models.QueueListResponse{Queues: stats})
 }
 
 func (app *Application) ListWorkers(w http.ResponseWriter, r *http.Request) {
@@ -436,7 +437,7 @@ func (app *Application) ListWorkers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app.writeJSON(w, r, http.StatusOK, WorkerListResponse{
+	app.writeJSON(w, r, http.StatusOK, models.WorkerListResponse{
 		Workers: mapSlice(entries, NewWorkerResponse),
 	})
 }
@@ -448,7 +449,7 @@ func (app *Application) ListHandlers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app.writeJSON(w, r, http.StatusOK, HandlerListResponse{Handlers: stats})
+	app.writeJSON(w, r, http.StatusOK, models.HandlerListResponse{Handlers: stats})
 }
 
 func (app *Application) GetHandler(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +475,7 @@ func (app *Application) GetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app.writeJSON(w, r, http.StatusOK, HandlerDetailResponse{
+	app.writeJSON(w, r, http.StatusOK, models.HandlerDetailResponse{
 		Handler: *stat,
 		Jobs:    mapSlice(jobs, NewJobResponse),
 	})

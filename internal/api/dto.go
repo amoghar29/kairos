@@ -12,6 +12,7 @@ import (
 	"github.com/amoghar29/kairos/internal/dashboard"
 	"github.com/amoghar29/kairos/internal/db"
 	"github.com/amoghar29/kairos/internal/worker"
+	"github.com/amoghar29/kairos/models"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -24,18 +25,6 @@ const (
 	minMaxRetries = 0
 	maxMaxRetries = 25
 )
-
-type CreateJobRequest struct {
-	Name       string          `json:"name"`
-	Queue      string          `json:"queue"`
-	Handler    string          `json:"handler"`
-	Payload    json.RawMessage `json:"payload"`
-	Priority   *int32          `json:"priority"`
-	MaxRetries *int32          `json:"max_retries"`
-	Cron       string          `json:"cron"`
-	StartsAt   *time.Time      `json:"starts_at"`
-	EndsAt     *time.Time      `json:"ends_at"`
-}
 
 func validateSchedule(cronExpr string, startsAt, endsAt *time.Time) map[string]string {
 	fields := map[string]string{}
@@ -80,7 +69,7 @@ func timestamptz(t *time.Time) pgtype.Timestamptz {
 
 // idempotencyKey comes from the Idempotency-Key header, not the body, so it is validated
 // alongside the body fields rather than on its own.
-func (r *CreateJobRequest) Validate(queues config.Queues, idempotencyKey string) map[string]string {
+func validateCreateJob(r *models.CreateJobRequest, queues config.Queues, idempotencyKey string) map[string]string {
 	fields := map[string]string{}
 
 	switch {
@@ -130,7 +119,7 @@ func (r *CreateJobRequest) Validate(queues config.Queues, idempotencyKey string)
 	return fields
 }
 
-func (r *CreateJobRequest) ToParams(idempotencyKey string) db.CreateJobParams {
+func createJobParams(r *models.CreateJobRequest, idempotencyKey string) db.CreateJobParams {
 	priority := int32(defaultPriority)
 	if r.Priority != nil {
 		priority = *r.Priority
@@ -142,7 +131,7 @@ func (r *CreateJobRequest) ToParams(idempotencyKey string) db.CreateJobParams {
 	}
 
 	payload := []byte(r.Payload)
-	if len(payload) == 0 {
+	if len(payload) == 0 || string(payload) == "null" {
 		payload = []byte("{}")
 	}
 
@@ -170,23 +159,14 @@ func (r *CreateJobRequest) ToParams(idempotencyKey string) db.CreateJobParams {
 	return arg
 }
 
-type VersionRequest struct {
-	Version int32 `json:"version"`
-}
-
-func (r *VersionRequest) Validate() map[string]string {
+func validateVersion(r *models.VersionRequest) map[string]string {
 	if r.Version < 1 {
 		return map[string]string{"version": "must be a positive integer"}
 	}
 	return nil
 }
 
-type PauseRequest struct {
-	Version int32 `json:"version"`
-	Paused  *bool `json:"paused"`
-}
-
-func (r *PauseRequest) Validate() map[string]string {
+func validatePause(r *models.PauseRequest) map[string]string {
 	fields := map[string]string{}
 	if r.Version < 1 {
 		fields["version"] = "must be a positive integer"
@@ -201,14 +181,7 @@ func (r *PauseRequest) Validate() map[string]string {
 	return fields
 }
 
-type RescheduleRequest struct {
-	Version  int32      `json:"version"`
-	Cron     string     `json:"cron"`
-	StartsAt *time.Time `json:"starts_at"`
-	EndsAt   *time.Time `json:"ends_at"`
-}
-
-func (r *RescheduleRequest) Validate() map[string]string {
+func validateReschedule(r *models.RescheduleRequest) map[string]string {
 	fields := map[string]string{}
 	if r.Version < 1 {
 		fields["version"] = "must be a positive integer"
@@ -224,7 +197,7 @@ func (r *RescheduleRequest) Validate() map[string]string {
 	return fields
 }
 
-func (r *RescheduleRequest) ToParams(id pgtype.UUID) db.RescheduleJobParams {
+func rescheduleParams(r *models.RescheduleRequest, id pgtype.UUID) db.RescheduleJobParams {
 	arg := db.RescheduleJobParams{
 		ID:          id,
 		Version:     r.Version,
@@ -244,31 +217,8 @@ func (r *RescheduleRequest) ToParams(id pgtype.UUID) db.RescheduleJobParams {
 	return arg
 }
 
-type JobResponse struct {
-	ID             string          `json:"id"`
-	Name           string          `json:"name"`
-	Queue          string          `json:"queue"`
-	Handler        string          `json:"handler"`
-	State          string          `json:"state"`
-	Payload        json.RawMessage `json:"payload"`
-	Priority       int32           `json:"priority"`
-	RetryCount     int32           `json:"retry_count"`
-	MaxRetries     int32           `json:"max_retries"`
-	DeliveryCount  int32           `json:"delivery_count"`
-	Version        int32           `json:"version"`
-	NextCheckAt    *time.Time      `json:"next_check_at"`
-	IdempotencyKey *string         `json:"idempotency_key"`
-	JobType        string          `json:"job_type"`
-	Cron           *string         `json:"cron"`
-	NextRunAt      *time.Time      `json:"next_run_at"`
-	StartsAt       *time.Time      `json:"starts_at"`
-	EndsAt         *time.Time      `json:"ends_at"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-}
-
-func NewJobResponse(j db.Job) JobResponse {
-	return JobResponse{
+func NewJobResponse(j db.Job) models.JobResponse {
+	return models.JobResponse{
 		ID:             j.ID.String(),
 		Name:           j.Name,
 		Queue:          j.Queue,
@@ -292,18 +242,8 @@ func NewJobResponse(j db.Job) JobResponse {
 	}
 }
 
-type JobAttemptResponse struct {
-	ID         string     `json:"id"`
-	JobID      string     `json:"job_id"`
-	WorkerID   *string    `json:"worker_id"`
-	Outcome    string     `json:"outcome"`
-	Result     *string    `json:"result"`
-	StartedAt  time.Time  `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at"`
-}
-
-func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
-	return JobAttemptResponse{
+func NewJobAttemptResponse(a db.JobAttempt) models.JobAttemptResponse {
+	return models.JobAttemptResponse{
 		ID:         a.ID.String(),
 		JobID:      a.JobID.String(),
 		WorkerID:   stringPtr(a.WorkerID),
@@ -314,46 +254,13 @@ func NewJobAttemptResponse(a db.JobAttempt) JobAttemptResponse {
 	}
 }
 
-type JobLogResponse struct {
-	Seq       int32     `json:"seq"`
-	Level     string    `json:"level"`
-	Line      string    `json:"line"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-func NewJobLogResponse(l db.GetAttemptLogsRow) JobLogResponse {
-	return JobLogResponse{
+func NewJobLogResponse(l db.GetAttemptLogsRow) models.JobLogResponse {
+	return models.JobLogResponse{
 		Seq:       l.Seq,
 		Level:     string(l.Level),
 		Line:      l.Line,
 		CreatedAt: utc(l.CreatedAt),
 	}
-}
-
-type JobLogListResponse struct {
-	Logs    []JobLogResponse `json:"logs"`
-	NextSeq *int32           `json:"next_seq"`
-}
-
-type PaginationResponse struct {
-	Limit   int32 `json:"limit"`
-	Offset  int32 `json:"offset"`
-	HasMore bool  `json:"has_more"`
-}
-
-type JobListResponse struct {
-	Jobs       []JobResponse      `json:"jobs"`
-	Pagination PaginationResponse `json:"pagination"`
-}
-
-type JobAttemptListResponse struct {
-	Attempts   []JobAttemptResponse `json:"attempts"`
-	Pagination PaginationResponse   `json:"pagination"`
-}
-
-type AttemptListResponse struct {
-	Attempts   []dashboard.AttemptStat `json:"attempts"`
-	Pagination PaginationResponse      `json:"pagination"`
 }
 
 func parseAttemptFilter(r *http.Request) (dashboard.AttemptFilter, map[string]string) {
@@ -387,12 +294,12 @@ func (p Pagination) fetchLimit() int32 {
 	return p.Limit + 1
 }
 
-func splitPage[T any](rows []T, p Pagination) ([]T, PaginationResponse) {
+func splitPage[T any](rows []T, p Pagination) ([]T, models.PaginationResponse) {
 	hasMore := int32(len(rows)) > p.Limit
 	if hasMore {
 		rows = rows[:p.Limit]
 	}
-	return rows, PaginationResponse{Limit: p.Limit, Offset: p.Offset, HasMore: hasMore}
+	return rows, models.PaginationResponse{Limit: p.Limit, Offset: p.Offset, HasMore: hasMore}
 }
 
 const (
@@ -512,32 +419,10 @@ func stringPtr(t pgtype.Text) *string {
 	return &t.String
 }
 
-type InflightJobResponse struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Queue     string    `json:"queue"`
-	Handler   string    `json:"handler"`
-	StartedAt time.Time `json:"started_at"`
-}
-
-type WorkerResponse struct {
-	ID           string                `json:"id"`
-	Name         string                `json:"name"`
-	Queues       []string              `json:"queues"`
-	InFlight     int                   `json:"in_flight"`
-	InFlightJobs []InflightJobResponse `json:"in_flight_jobs"`
-	StartedAt    time.Time             `json:"started_at"`
-	LastSeen     time.Time             `json:"last_seen"`
-}
-
-type WorkerListResponse struct {
-	Workers []WorkerResponse `json:"workers"`
-}
-
-func NewWorkerResponse(e worker.RegistryEntry) WorkerResponse {
-	jobs := make([]InflightJobResponse, 0, len(e.InFlight))
+func NewWorkerResponse(e worker.RegistryEntry) models.WorkerResponse {
+	jobs := make([]models.InflightJobResponse, 0, len(e.InFlight))
 	for _, j := range e.InFlight {
-		jobs = append(jobs, InflightJobResponse{
+		jobs = append(jobs, models.InflightJobResponse{
 			ID:        j.ID.String(),
 			Name:      j.Name,
 			Queue:     j.Queue,
@@ -549,7 +434,7 @@ func NewWorkerResponse(e worker.RegistryEntry) WorkerResponse {
 	if queues == nil {
 		queues = []string{}
 	}
-	return WorkerResponse{
+	return models.WorkerResponse{
 		ID:           e.ID.String(),
 		Name:         e.Name,
 		Queues:       queues,
@@ -558,13 +443,4 @@ func NewWorkerResponse(e worker.RegistryEntry) WorkerResponse {
 		StartedAt:    e.StartedAt.UTC(),
 		LastSeen:     e.LastSeen.UTC(),
 	}
-}
-
-type HandlerListResponse struct {
-	Handlers []dashboard.HandlerStat `json:"handlers"`
-}
-
-type HandlerDetailResponse struct {
-	Handler dashboard.HandlerStat `json:"handler"`
-	Jobs    []JobResponse         `json:"jobs"`
 }

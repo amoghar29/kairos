@@ -125,7 +125,7 @@ class Component extends KairosComponent {
     }
     return body;
   }
-  getQueues() { return this.api('/queues'); }
+  async getQueues() { const d = await this.api('/queues'); return d.queues || []; }
   getWorkers() { return this.api('/workers'); }
   getHandlers() { return this.api('/handlers'); }
   getHandler(name) { return this.api('/handlers/' + encodeURIComponent(name)); }

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/amoghar29/kairos/internal/dashboard"
+	"github.com/amoghar29/kairos/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -18,7 +19,7 @@ func (app *Application) Routes() http.Handler {
 
 	r.NotFound(app.notFound)
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		app.writeError(w, r, http.StatusMethodNotAllowed, CodeNotFound, "method not allowed for this resource", nil)
+		app.writeError(w, r, http.StatusMethodNotAllowed, models.CodeNotFound, "method not allowed for this resource", nil)
 	})
 
 	r.Route("/api", func(r chi.Router) {

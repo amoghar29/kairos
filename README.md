@@ -54,6 +54,7 @@ Unlike queue libraries that keep redelivery authority in the broker, **kairos** 
   - [Library configuration](#library-configuration)
 - [Submitting jobs](#submitting-jobs)
 - [HTTP API](#http-api)
+  - [Go client](#go-client)
 - [Guarantees](#guarantees)
 - [Scheduling: priority and aging](#scheduling-priority-and-aging)
 - [Failure handling](#failure-handling)
@@ -479,6 +480,90 @@ Unknown `state` or `job_type` values are rejected rather than ignored. Results a
 
 `code` is one of `invalid_json` (400), `validation_failed` (422), `not_found` (404),
 `conflict` (409), `internal_error` (500).
+
+### Go client
+
+`client` is a typed wrapper over the same endpoints, for Go services that submit or inspect
+jobs without hand-rolling requests. It and the server share their request and response types
+from `models`, which imports nothing internal — the contract cannot drift between the two, and
+other modules can import it.
+
+```go
+import (
+    "github.com/amoghar29/kairos/client"
+    "github.com/amoghar29/kairos/models"
+)
+
+c := client.New(&client.Opt{RootURL: "http://localhost:8080/api/v1"})
+
+job, err := c.PostJob(ctx, models.CreateJobRequest{
+    Name:    "welcome-email",
+    Queue:   "default",
+    Handler: "email",
+    Payload: json.RawMessage(`{"to": "a@b.com"}`),
+}, "welcome-a@b.com")
+```
+
+`RootURL` must include `/api/v1`. `HTTPClient` is optional and defaults to a 30 second client.
+Every method takes a `context.Context` first.
+
+| Method | Endpoint |
+| --- | --- |
+| `PostJob(ctx, req, idempotencyKey)` | `POST /jobs` |
+| `GetJobs(ctx, JobQuery{…})` | `GET /jobs` |
+| `GetJob(ctx, id)` | `GET /jobs/{id}` |
+| `DeleteJob(ctx, id)` | `DELETE /jobs/{id}` |
+| `CancelJob(ctx, id, version)` | `POST /jobs/{id}/cancel` |
+| `RerunJob(ctx, id, version)` | `POST /jobs/{id}/rerun` |
+| `PauseJob(ctx, id, version, paused)` | `POST /jobs/{id}/pause` |
+| `RescheduleJob(ctx, id, req)` | `POST /jobs/{id}/schedule` |
+| `GetJobAttempts(ctx, id, PageQuery{…})` | `GET /jobs/{id}/attempts` |
+| `GetAttemptLogs(ctx, jobID, attemptID, LogQuery{…})` | `GET /jobs/{id}/attempts/{attemptID}/logs` |
+| `GetQueues(ctx)` | `GET /queues` |
+| `GetWorkers(ctx)` | `GET /workers` |
+| `GetHandlers(ctx)` | `GET /handlers` |
+| `GetHandler(ctx, name)` | `GET /handlers/{name}` |
+
+Filters go through `JobQuery`, `PageQuery` and `LogQuery`. Zero-valued fields are left out of
+the query string, so the server defaults apply. `GET /jobs/attempts` — the cross-job attempt
+feed — is not wrapped yet.
+
+Any non-2xx response comes back as a `*client.APIError` carrying the decoded error envelope
+plus the status code, which the body alone does not identify (`404` and `405` both report
+`not_found`). **A `409` is an expected outcome, not a bug** — it means another writer advanced
+the job's `version` first — so branch on it rather than logging it:
+
+```go
+job, err := c.CancelJob(ctx, id, version)
+
+var apiErr *client.APIError
+if errors.As(err, &apiErr) && apiErr.Conflict() {
+    // refetch, then retry with the new version
+}
+```
+
+`apiErr.Code`, `apiErr.Message` and `apiErr.Fields` are exactly the values from the error
+envelope above.
+
+Failed requests are retried up to 3 times with exponential backoff and jitter (100 ms base),
+on transport errors and on `500` — the only 5xx the API itself returns — plus `502`, `503` and
+`504`, which a proxy in front of it emits while the server is unreachable. Every `4xx` is
+deterministic and is returned on the first attempt rather than hammered.
+
+**What gets replayed is decided by whether a replay can change server state**, not by the HTTP
+verb alone:
+
+| Request | Replayed | Why |
+| --- | --- | --- |
+| `GET`, `DELETE` | yes | idempotent by definition |
+| `POST /jobs` with `Idempotency-Key` | yes | the server dedupes on the key |
+| `POST /jobs` without a key | **no** | a replay would create a second job |
+| `cancel`, `rerun`, `pause`, `schedule` | yes | the `version` guard rejects a stale replay rather than double-applying it |
+
+So passing an idempotency key does more than deduplicate your own retries — it is what makes
+job creation safe for the client to retry at all. The backoff respects context cancellation,
+and the per-attempt timeout is the `HTTPClient` one, so bound total time with the `ctx` you
+pass in.
 
 ## Guarantees
 
